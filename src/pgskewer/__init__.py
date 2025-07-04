@@ -91,6 +91,17 @@ class ImprovedQueuer(PgQueuer):
         return decorator
 
     def store_results(self, async_fn):
+        """
+        CREATE TABLE "pgqueuer_results" (
+            id SERIAL PRIMARY KEY,
+            job_id BIGINT NOT NULL,
+            entrypoint TEXT NOT NULL,
+            status pgqueuer_status NOT NULL,
+            ok BOOLEAN DEFAULT TRUE,
+            result JSON NOT NULL
+            )
+        """
+
         @functools.wraps(async_fn)
         async def wrapper(job: Job, *a):
             exc = None
@@ -104,15 +115,17 @@ class ImprovedQueuer(PgQueuer):
                 }
 
             # pgqueuer_log for job_id with status = 'successful' doesn't exit yet so store in pgqueuer_results table
+            ok = exc is None
             await self.connection.execute(
                 """
-                INSERT INTO pgqueuer_results (job_id, entrypoint, result, ok)
-                VALUES ($1, $2, $3, $4);
+                INSERT INTO pgqueuer_results (job_id, entrypoint, result, ok, status)
+                VALUES ($1, $2, $3, $4, $5);
                 """,
                 job.id,
                 job.entrypoint,
                 json.dumps(result, default=str),
-                exc is None,
+                ok,
+                "successful" if ok else "exception",
             )
 
             if exc is not None:
@@ -236,12 +249,6 @@ class ImprovedQueuer(PgQueuer):
                             )
 
         async def callback(job: Job) -> PipelinePayload:
-            # currently, the initial payload is set as the result but that looks kinda weird:
-            # {'ka': 'via', 'fetch': {'status': 'successful', 'ok': True, 'result': 'yay 114'}, 'slow': {'status': 'successful', 'ok': True, 'result': 'waiting is over'}}
-            # (in this example `{ka: via}` was the initial payload.
-            # how else would you restructure this?
-            # I would also like a TypedDict definition for improved typing
-            # and then maybe a parse_payload function (that returns that typeddict) instead of a generic safe_json
             results: PipelinePayload = {
                 "initial": safe_json(job.payload) or None,
                 "tasks": {},
@@ -277,23 +284,8 @@ class ImprovedQueuer(PgQueuer):
 
                         print(f"✅ {substep} completed: {status}")
 
-                        rows = await self.connection.fetch(
-                            """
-                            SELECT ok, result
-                            FROM pgqueuer_results
-                            WHERE job_id = $1
-                            ;
-                            """,
-                            job_id,
-                        )
-
-                        if rows:
-                            row = rows[0]
-                            results["tasks"][substep] = {
-                                "status": status,
-                                "ok": row["ok"],
-                                "result": safe_json(row["result"]),
-                            }
+                        if task_result := await self.result(job_id, timeout=1):
+                            results["tasks"][substep] = task_result
 
             return results
 
@@ -310,8 +302,44 @@ class ImprovedQueuer(PgQueuer):
         """
         return self.entrypoint(name)(self.pipeline(*input_steps, check=check))
 
-    async def result(self, job_id: int, timeout: t.Optional[int] = None):
-        raise NotImplementedError("awaiting results is not implemented yet!")
+    async def result(
+        self, job_id: int, timeout: t.Optional[int] = None
+    ) -> TaskResult | None:
+        start_time = asyncio.get_event_loop().time()
+
+        while True:
+            # Query the database for results
+            rows = await self.connection.fetch(
+                """
+                SELECT ok, result, status
+                FROM pgqueuer_results
+                WHERE job_id = $1
+                ;
+                """,
+                job_id,
+            )
+
+            # If we found results, return them
+            if rows:
+                row = rows[0]
+                return {
+                    "status": row["status"],
+                    "ok": row["ok"],
+                    "result": safe_json(row["result"]),
+                }
+
+            # Check if we've exceeded the timeout
+            if timeout is not None:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed >= timeout:
+                    return None  # Return None if timeout reached
+
+                # Wait a bit before trying again, but don't exceed the remaining timeout
+                remaining = timeout - elapsed
+                await asyncio.sleep(min(0.1, remaining))
+            else:
+                # No timeout specified, wait a bit before trying again
+                await asyncio.sleep(0.1)
 
 
 def _unblock_with_logs[P, R](
