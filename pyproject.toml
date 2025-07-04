@@ -9,7 +9,7 @@ readme = "README.md"
 authors = [
     { name = "Robin van der Noord", email = "robin.vdn@educationwarehouse.nl" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
     "pgqueuer",
