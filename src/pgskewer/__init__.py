@@ -186,6 +186,10 @@ class ImprovedQueuer(PgQueuer):
         Each task's result is stored under its entrypoint name in the `tasks` dictionary.
         """
 
+        # todo:
+        #  - configuring kill policy (currently: paralel tasks are terminated when one sibling fails)
+        #  - configuring data retention (currently: every step is saved and the final result pipeline also contains all data)
+
         key_to_fn = t.cast(
             dict[str, AsyncTask],
             {k: v.parameters.func for k, v in self.qm.entrypoint_registry.items()},
@@ -305,6 +309,9 @@ class ImprovedQueuer(PgQueuer):
         Register your pipeline as an entrypoint
         """
         return self.entrypoint(name)(self.pipeline(*input_steps, check=check))
+
+    async def result(self, job_id: int, timeout: t.Optional[int] = None):
+        raise NotImplementedError("awaiting results is not implemented yet!")
 
 
 def _unblock_with_logs[P, R](
