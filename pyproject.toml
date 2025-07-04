@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pgskewer"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Robin van der Noord", email = "robin.vdn@educationwarehouse.nl" }
+]
+requires-python = ">=3.13"
+dynamic = ["version"]
+dependencies = [
+    "pgqueuer",
+    "uvloop",
+    "asyncpg",
+    "anyio",
+]
+
+[project.optional-dependencies]
+dev = [
+    "hatch",
+    "python-semantic-release<8",
+    "edwh"
+]
+
+
+[tool.hatch.version]
+path = "src/pgskewer/__about__.py"
+
+[tool.semantic_release]
+branch = "master"
+version_variable = "src/pgskewer/__about__.py:__version__"
+change_log = "CHANGELOG.md"
+upload_to_repository = false
+upload_to_release = false
+build_command = "hatch build"
