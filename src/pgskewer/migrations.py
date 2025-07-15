@@ -226,6 +226,7 @@ def pgskewer_pgqueuer_v0_24_headers_column_001(db: DAL):
     db.commit()
     return True
 
+
 def noop():
     """
     You just need to import this file, but if your editor complains that your import is useless,

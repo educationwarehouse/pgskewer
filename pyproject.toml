@@ -42,3 +42,12 @@ change_log = "CHANGELOG.md"
 upload_to_repository = false
 upload_to_release = false
 build_command = "hatch build"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+extend-exclude = ["jupyterlab"]
+
+[tool.isort]
+profile = "black"
+extend_skip_glob = ["venv*"]
