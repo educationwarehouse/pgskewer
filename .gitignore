@@ -8,3 +8,6 @@ venv*
 .idea
 .venv
 .env
+.coverage
+coverage.*
+htmlcov

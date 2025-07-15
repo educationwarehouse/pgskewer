@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: pg_test_db
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: test_db
+    tmpfs:
+      # Use tmpfs to ensure no data is stored on disk
+      - /var/lib/postgresql/data
+
+  pgq:
+    build:
+      context: ..
+      dockerfile: tests/Dockerfile
+    command: pgq run tests.consumers:main --batch-size 1
+    depends_on:
+      - postgres
+    environment:
+      POSTGRES_URI: postgres://test_user:test_password@postgres:5432/test_db
+      MIGRATE_URI: postgres://test_user:test_password@postgres:5432/test_db
+    deploy:
+      replicas: 3
+

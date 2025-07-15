@@ -23,12 +23,15 @@ dependencies = [
 migrate = [
     "edwh-migrate",
     "pydal",
+    "psycopg2-binary",
 ]
 
 dev = [
     "hatch",
     "python-semantic-release<8",
-    "edwh"
+    "edwh",
+    "pytest",
+    "pytest-cov",
 ]
 
 
