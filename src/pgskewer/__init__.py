@@ -386,6 +386,8 @@ class ImprovedQueuer(PgQueuer):
 
         # todo:
         #  - configuring data retention (currently: every step is saved and the final result pipeline also contains all data)
+        #  - configuring timeouts (which pgqueuer doesn't seem to support?)
+        #  - configuring retries (which pgqueuer should already support?)
 
         key_to_fn = t.cast(
             dict[str, AsyncTask],
