@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pgskewer"
-description = "Add your description here"
+description = "EDWH pgqueuer pipeline (pg-skEWer)"
 readme = "README.md"
 authors = [
     { name = "Robin van der Noord", email = "robin.vdn@educationwarehouse.nl" }
@@ -12,13 +12,19 @@ authors = [
 requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
-    "pgqueuer",
+    "pgqueuer < 0.25",
     "uvloop",
     "asyncpg",
     "anyio",
 ]
 
 [project.optional-dependencies]
+
+migrate = [
+    "edwh-migrate",
+    "pydal",
+]
+
 dev = [
     "hatch",
     "python-semantic-release<8",
