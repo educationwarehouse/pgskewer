@@ -6,6 +6,9 @@ services:
       POSTGRES_USER: test_user
       POSTGRES_PASSWORD: test_password
       POSTGRES_DB: test_db
+    ports:
+      # host : container
+      - "55535:5432"
     tmpfs:
       # Use tmpfs to ensure no data is stored on disk
       - /var/lib/postgresql/data
@@ -20,6 +23,7 @@ services:
     environment:
       POSTGRES_URI: postgres://test_user:test_password@postgres:5432/test_db
       MIGRATE_URI: postgres://test_user:test_password@postgres:5432/test_db
+      DB_FOLDER: /tmp
     deploy:
       replicas: 3
 

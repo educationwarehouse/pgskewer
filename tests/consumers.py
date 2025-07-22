@@ -5,6 +5,7 @@ from pgskewer.migrations import noop
 
 
 async def main():
+    noop()
     activate_migrations()
 
     pgq = await ImprovedQueuer.from_env()

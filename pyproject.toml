@@ -32,6 +32,10 @@ dev = [
     "edwh",
     "pytest",
     "pytest-cov",
+    # from migrate:
+    "edwh-migrate",
+    "pydal",
+    "psycopg2-binary",
 ]
 
 
