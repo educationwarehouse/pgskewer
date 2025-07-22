@@ -20,6 +20,10 @@ services:
     command: pgq run tests.consumers:main --batch-size 1
     depends_on:
       - postgres
+    volumes:
+      - type: bind
+        source: ..
+        target: /srv
     environment:
       POSTGRES_URI: postgres://test_user:test_password@postgres:5432/test_db
       MIGRATE_URI: postgres://test_user:test_password@postgres:5432/test_db
