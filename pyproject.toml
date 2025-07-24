@@ -12,10 +12,11 @@ authors = [
 requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
-    "pgqueuer < 0.25",
-    "uvloop",
     "asyncpg",
     "anyio",
+    "pgqueuer < 0.25",
+    "python-dotenv",
+    "uvloop",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +38,10 @@ dev = [
     "pydal",
     "psycopg2-binary",
 ]
+
+
+[project.scripts]
+pgskewer = "pgskewer.cli:main"
 
 
 [tool.hatch.version]

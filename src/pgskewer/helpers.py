@@ -13,7 +13,7 @@ def utcnow():
 def queue_job(
     db: DAL,
     entrypoint: str,
-    payload: dict,
+    payload: str | dict,
     priority: int = 10,
     execute_after: Optional[dt.datetime] = None,
     unique_key: Optional[str] = None,
@@ -51,7 +51,7 @@ def queue_job(
         placeholders={
             "priority": priority,
             "entrypoint": entrypoint,
-            "payload": json.dumps(payload),
+            "payload": payload if isinstance(payload, str) else json.dumps(payload),
             "unique_key": unique_key,
             "execute_after": execute_after,
         },
