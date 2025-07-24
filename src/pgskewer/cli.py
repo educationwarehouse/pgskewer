@@ -4,9 +4,14 @@ import os
 import sys
 import tempfile
 import textwrap
+import warnings
 
 from dotenv import load_dotenv
-from pydal import DAL
+
+with warnings.catch_warnings():
+    # silence `invalid escape sequence` warnings in pydal:
+    warnings.filterwarnings("ignore", category=SyntaxWarning)
+    from pydal import DAL
 
 from .helpers import queue_job
 
@@ -38,11 +43,11 @@ def print_help():
     Usage: %(program)s <command> [arguments]
     
     Commands:
-      enqueue <entrypoint> [data]    Enqueue a task with the given entrypoint
-                                     Optional data parameter (defaults to '{}')
+      enqueue <entrypoint> [payload]    Enqueue a task with the given entrypoint
+                                        Optional json payload data parameter (defaults to '{}')
     
     Options:
-      -h, --help                     Show this help message
+      -h, --help                        Show this help message
     
     Examples:
       %(program)s enqueue my_task
