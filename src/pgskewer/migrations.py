@@ -124,7 +124,7 @@ def pgskewer_install_pgq_tables_001(db: DAL):
 @migration()
 def pgskewer_add_pgq_result_table_001(db: DAL):
     db.executesql("""
-                  CREATE TABLE "pgqueuer_results"
+                  CREATE TABLE "pgqueuer_result"
                   (
                       id           SERIAL PRIMARY KEY,
                       job_id       BIGINT          NOT NULL,
@@ -223,6 +223,16 @@ def pgskewer_pgqueuer_v0_24_headers_column_001(db: DAL):
     # https://github.com/janbjorge/pgqueuer/releases/tag/0.24.0
     db.executesql("""ALTER TABLE pgqueuer
         ADD COLUMN IF NOT EXISTS headers JSONB;""")
+    db.commit()
+    return True
+
+
+@migration()
+def pgskewer_add_spawned_status_to_pgqueuer_status(db: DAL):
+    db.executesql("""
+    -- for logging when a pipeline spawns subtasks
+    ALTER TYPE pgqueuer_status ADD VALUE 'spawned';
+    """)
     db.commit()
     return True
 

@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import tempfile
+import traceback
 import typing as t
 from pathlib import Path
 
@@ -93,6 +94,30 @@ class PipelinePayload(t.TypedDict):
     tasks: dict[str, TaskResult]
 
 
+class SkewerException(Exception): ...
+
+
+class SubstepFailed(SkewerException): ...
+
+
+def is_async(fn: t.Callable[..., t.Awaitable[...]]) -> bool:
+    """
+    Determine whether a given callable is an asynchronous function.
+
+    This function checks if the provided callable is recognized as a coroutine
+    function. It is typically used to differentiate between regular synchronous
+    functions and asynchronous coroutine functions.
+
+    Args:
+        fn: A callable object to be checked. This can be any callable,
+            including functions, methods, or classes implementing `__call__`.
+
+    Returns:
+        bool: True if the provided callable is a coroutine function, False otherwise.
+    """
+    return inspect.iscoroutinefunction(fn)
+
+
 class ImprovedQueuer(PgQueuer):
     """
     Enhanced PgQueuer with additional features for job management and pipeline execution.
@@ -152,7 +177,7 @@ class ImprovedQueuer(PgQueuer):
         """
 
         def decorator(func: AsyncTask) -> AsyncTask:
-            if not inspect.iscoroutinefunction(func):
+            if not is_async(func):
                 raise RuntimeError(
                     f"Please use only `async` functions (with `unblock`) for pgskewer entrypoints! (culprit: {func.__name__})"
                 )
@@ -183,7 +208,7 @@ class ImprovedQueuer(PgQueuer):
 
     def store_results(self, async_fn: executors.EntrypointTypeVar) -> executors.EntrypointTypeVar:
         """
-        Decorator that stores job execution results in the pgqueuer_results table.
+        Decorator that stores job execution results in the pgqueuer_result table.
 
         This decorator wraps an async function to automatically persist its execution
         results to a database table for later retrieval. It captures both successful
@@ -199,7 +224,7 @@ class ImprovedQueuer(PgQueuer):
         Note:
             Depends on the following table structure:
 
-            CREATE TABLE "pgqueuer_results" (
+            CREATE TABLE "pgqueuer_result" (
                 id SERIAL PRIMARY KEY,
                 job_id BIGINT NOT NULL,
                 entrypoint TEXT NOT NULL,
@@ -214,7 +239,7 @@ class ImprovedQueuer(PgQueuer):
             ... async def my_task(job: Job):
             ...     return {"processed": True}
 
-            The result will be stored in pgqueuer_results table with job metadata.
+            The result will be stored in pgqueuer_result table with job metadata.
         """
 
         @functools.wraps(async_fn)
@@ -231,11 +256,11 @@ class ImprovedQueuer(PgQueuer):
 
             # print(f"{async_fn.__name__} {result = }", file=sys.stderr)
 
-            # pgqueuer_log for job_id with status = 'successful' doesn't exit yet so store in pgqueuer_results table
+            # pgqueuer_log for job_id with status = 'successful' doesn't exit yet so store in pgqueuer_result table
             ok = exc is None
             await self.connection.execute(
                 """
-                INSERT INTO pgqueuer_results (job_id, entrypoint, result, ok, status)
+                INSERT INTO pgqueuer_result (job_id, entrypoint, result, ok, status)
                 VALUES ($1, $2, $3, $4, $5);
                 """,
                 job.id,
@@ -254,33 +279,28 @@ class ImprovedQueuer(PgQueuer):
 
     def cancelable(self, async_fn: executors.EntrypointTypeVar) -> executors.EntrypointTypeVar:
         """
-        Decorator that prevents task failures from halting pipeline execution.
+        Wraps an asynchronous function to provide cancelation capability for a job.
 
-        This decorator wraps an async function to catch all exceptions and return
-        None instead of propagating them. This is particularly useful in pipeline
-        contexts where you want individual task failures to be treated as non-fatal,
-        allowing the pipeline to continue rather than halting and cancelling parallel tasks.
+        This decorator ensures that the wrapped asynchronous function respects a cancellation context. If the job gets
+        canceled during execution, a `ChildProcessError` exception is raised.
 
-        Args:
-            async_fn: The async function to wrap. Must accept a Job parameter.
+        Note that canceling only works on async, non-blocking functions.
+        You can use `unblock` to move cpu-blocking sync tasks to a cancelable context.
 
-        Returns:
-            The wrapped function that returns None on any exception instead of
-            raising it.
-
-        Warning:
-            This decorator silently swallows all exceptions. Use with caution and
-            consider combining with store_results() to track failures.
+        You can set `cancelable` to False in case you do need a subtask to finish even when other tasks fail,
+        such as cleanup operations, data consistency checks, or critical logging that must complete regardless
+        of pipeline cancellation.
 
         Example:
-            >>> @pgq.entrypoint("name", crashable=True)  # False by default
+            >>> @pgq.entrypoint("name") # cancelable by default
             ... async def unreliable_task(job: Job):
-            ...     if random.random() < 0.5:
-            ...         raise ValueError("Random failure")
-            ...     return "success"
+            ...     await unblock(time.sleep, 5) # cancelable
+            ...     return "success" # unless a sibling task crashes
+            >>> @pgq.entrypoint("name", cancelable=False)
+            ... async def unreliable_task(job: Job):
+            ...     await unblock(time.sleep, 5) # it's still a good idea not to block this thread
+            ...     return "success" # even if a sibling task crashes
 
-            # In a pipeline, this task's failure won't halt execution or cancel siblings
-            # The pipeline will continue with this task's result as None
         """
 
         @functools.wraps(async_fn)
@@ -312,7 +332,7 @@ class ImprovedQueuer(PgQueuer):
             consider combining with store_results() to track failures.
 
         Example:
-            >>> @pgq.entrypoint("name", crashable=True) # Fales by Default
+            >>> @pgq.entrypoint("name", crashable=True) # False by Default
             ... async def unreliable_task(job: Job):
             ...     if random.random() < 0.5:
             ...         raise ValueError("Random failure")
@@ -326,9 +346,34 @@ class ImprovedQueuer(PgQueuer):
             try:
                 return await async_fn(job)
             except Exception as e:
+                print(f"Warn: crashable job `{job.entrypoint}` failed", file=sys.stderr)
+                traceback.print_exception(e)
                 return None
 
         return wrapper
+
+    async def log(
+        self,
+        job: Job,
+        status: str,
+        data: str | t.Any,
+        priority: int = 0,
+    ):
+        await self.connection.execute(
+            """
+                             INSERT INTO pgqueuer_log (job_id, status, priority, entrypoint, traceback)
+                             VALUES ($1,
+                                     $2,
+                                     $3,
+                                     $4,
+                                     $5)
+                             """,
+            job.id,
+            status,
+            priority,
+            job.entrypoint,
+            data if isinstance(data, str) else json.dumps(data),
+        )
 
     def pipeline(
         self,
@@ -448,6 +493,8 @@ class ImprovedQueuer(PgQueuer):
                     priority=[0] * len(substeps),
                 )
 
+                await self.log(job, "spawned", job_ids)
+
                 async with CompletionWatcher(driver) as w:
                     jobs = [w.wait_for(j) for j in job_ids]
                     named_jobs = [named_future(name, job_id, fut) for name, job_id, fut in zip(substeps, job_ids, jobs)]
@@ -455,11 +502,9 @@ class ImprovedQueuer(PgQueuer):
                     for coro in asyncio.as_completed(named_jobs):
                         substep, job_id, status = await coro
 
-                        print(f"{status = }")
-
                         if status == "exception" or isinstance(status, Exception):
                             await queue.mark_job_as_cancelled(job_ids)
-                            raise RuntimeError(f"{substep} failed")
+                            raise SubstepFailed(substep)
 
                         print(f"✅ {substep} completed: {status}")
 
@@ -502,7 +547,7 @@ class ImprovedQueuer(PgQueuer):
         """
         Retrieve the stored result of a job by its ID.
 
-        This method polls the pgqueuer_results table to find the result of a
+        This method polls the pgqueuer_result table to find the result of a
         specific job. It will wait until the result is available or the timeout
         is reached.
 
@@ -529,7 +574,7 @@ class ImprovedQueuer(PgQueuer):
             rows = await self.connection.fetch(
                 """
                 SELECT ok, result, status
-                FROM pgqueuer_results
+                FROM pgqueuer_result
                 WHERE job_id = $1
                 ;
                 """,

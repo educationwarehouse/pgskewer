@@ -79,7 +79,7 @@ async def main():
     
     # Execute the pipeline (empty initial data)
     job_id = await pgq.qm.queries.enqueue("my_pipeline", b'')
-    # when the pipeline completes, pgqueuer_results should have an entry for this job_id:
+    # when the pipeline completes, pgqueuer_result should have an entry for this job_id:
     result: TaskResult = await pgq.result(job_id, timeout=None)
     
     
