@@ -47,11 +47,13 @@ async def main():
 
     pgq.entrypoint_pipeline(
         "failing_pipeline",
-        [crashable_entrypoint, basic_entrypoint],
         [
-            slow_cancelable,
-            slow_non_cancelable,
-            failing_entrypoint,
+            [crashable_entrypoint, basic_entrypoint],
+            (
+                slow_cancelable,
+                slow_non_cancelable,
+                failing_entrypoint,
+            ),
         ],
     )
 

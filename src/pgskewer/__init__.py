@@ -118,6 +118,9 @@ def is_async(fn: t.Callable[..., t.Awaitable[...]]) -> bool:
     return inspect.iscoroutinefunction(fn)
 
 
+type InputStep = str | AsyncTask | t.Sequence[str | AsyncTask] | t.Sequence[t.Sequence[str | AsyncTask]]
+
+
 class ImprovedQueuer(PgQueuer):
     """
     Enhanced PgQueuer with additional features for job management and pipeline execution.
@@ -377,7 +380,7 @@ class ImprovedQueuer(PgQueuer):
 
     def pipeline(
         self,
-        *input_steps: str | AsyncTask | list[str | AsyncTask],
+        *input_steps: InputStep,
         check: bool = True,
     ) -> AsyncTask:
         """
@@ -448,10 +451,11 @@ class ImprovedQueuer(PgQueuer):
                 if step in fn_to_key:
                     return fn_to_key[step]
                 raise ValueError(f"Function {step.__name__} is not registered as an entrypoint")
-            elif isinstance(step, list):
+            elif isinstance(step, t.Sequence):
+                # tuple, list; NOT dict, set
                 return [map_step(s) for s in step]
             else:
-                raise TypeError(f"Step must be a string, function, or list, not {type(step)}")
+                raise TypeError(f"Step must be a string, function, or Sequence, not {type(step)}")
 
         # 2. Ensure pipeline() can be called with one list as input or multiple inputs
         if len(input_steps) == 1 and isinstance(input_steps[0], list):
@@ -518,7 +522,7 @@ class ImprovedQueuer(PgQueuer):
     def entrypoint_pipeline(
         self,
         name: str,
-        *input_steps: str | AsyncTask | list[str | AsyncTask],
+        *input_steps: InputStep,
         check: bool = True,
     ):
         """
