@@ -225,17 +225,7 @@ class ImprovedQueuer(PgQueuer):
             The wrapped function that will store results in the database after execution.
 
         Note:
-            Depends on the following table structure:
-
-            CREATE TABLE "pgqueuer_result" (
-                id SERIAL PRIMARY KEY,
-                job_id BIGINT NOT NULL,
-                entrypoint TEXT NOT NULL,
-                status pgqueuer_status NOT NULL,
-                ok BOOLEAN DEFAULT TRUE,
-                result JSON NOT NULL,
-                completed_at TIMESTAMP NOT NULL DEFAULT NOW()
-            )
+            Depends on the table structure as defined in `pgskewer_add_pgq_result_table`
 
         Example:
             >>> @pgq.entrypoint("name", store_results=True) # try by Default
@@ -249,6 +239,16 @@ class ImprovedQueuer(PgQueuer):
         async def wrapper(job: Job):
             exc = None
 
+            job_row = (
+                await self.connection.fetch(
+                    """
+            SELECT dedupe_key FROM pgqueuer WHERE id = $1;
+            """,
+                    job.id,
+                )
+            )[0]
+            # ^ before running the function, otherwise the row may already be removed
+
             try:
                 result = await async_fn(job)
             except Exception as e:
@@ -257,20 +257,19 @@ class ImprovedQueuer(PgQueuer):
                     "exception": [type(exc).__name__, exc],
                 }
 
-            # print(f"{async_fn.__name__} {result = }", file=sys.stderr)
-
             # pgqueuer_log for job_id with status = 'successful' doesn't exit yet so store in pgqueuer_result table
             ok = exc is None
             await self.connection.execute(
                 """
-                INSERT INTO pgqueuer_result (job_id, entrypoint, result, ok, status)
-                VALUES ($1, $2, $3, $4, $5);
+                INSERT INTO pgqueuer_result (job_id, entrypoint, result, ok, status, unique_key)
+                VALUES ($1, $2, $3, $4, $5, $6);
                 """,
                 job.id,
                 job.entrypoint,
                 json.dumps(result, default=str),
                 ok,
                 "successful" if ok else "exception",
+                job_row["dedupe_key"],
             )
 
             if exc is not None:

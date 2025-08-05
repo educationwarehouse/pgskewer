@@ -1,8 +1,10 @@
+import dataclasses as dc
 import datetime as dt
 import json
+import typing as t
 import uuid
-from typing import Optional
 
+from edwh_uuid7 import uuid7
 from pydal import DAL
 
 
@@ -10,14 +12,21 @@ def utcnow():
     return dt.datetime.now(dt.UTC)
 
 
+@dc.dataclass
+class EnqueuedJob:
+    id: int
+    key: uuid.UUID
+
+    _db: DAL = None
+
+
 def queue_job(
     db: DAL,
     entrypoint: str,
     payload: str | dict,
     priority: int = 10,
-    execute_after: Optional[dt.datetime] = None,
-    unique_key: Optional[str] = None,
-) -> int:
+    execute_after: t.Optional[dt.datetime] = None,
+) -> EnqueuedJob:
     """
     Queue a job in the pgqueuer table and log it in pgqueuer_log.
 
@@ -31,7 +40,7 @@ def queue_job(
     Returns:
         int: The ID of the queued job.
     """
-    unique_key = unique_key or str(uuid.uuid4())
+    unique_key = uuid7()
 
     execute_after = execute_after or utcnow()
 
@@ -52,7 +61,7 @@ def queue_job(
             "priority": priority,
             "entrypoint": entrypoint,
             "payload": payload if isinstance(payload, str) else json.dumps(payload),
-            "unique_key": unique_key,
+            "unique_key": str(unique_key),
             "execute_after": execute_after,
         },
     )
@@ -77,4 +86,4 @@ def queue_job(
     )
 
     db.commit()
-    return job_id
+    return EnqueuedJob(job_id, unique_key, db)

@@ -5,6 +5,7 @@ import sys
 import tempfile
 import textwrap
 import warnings
+from uuid import UUID
 
 from dotenv import load_dotenv
 
@@ -30,12 +31,12 @@ def setup_db():
         db.close()
 
 
-def enqueue(entrypoint: str, data: str = "{}") -> int:
+def enqueue(entrypoint: str, data: str = "{}") -> UUID:
     with setup_db() as db:
-        job_id = queue_job(db, entrypoint, data)
+        job = queue_job(db, entrypoint, data)
 
-        print(f"Enqueued Job({job_id})")
-        return job_id
+        print(f"Enqueued Job({job.id})")
+        return job.key
 
 
 def print_help():

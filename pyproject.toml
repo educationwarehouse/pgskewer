@@ -23,6 +23,7 @@ dependencies = [
 
 migrate = [
     "edwh-migrate",
+    "edwh-uuid7",
     "pydal",
     "psycopg2-binary",
 ]

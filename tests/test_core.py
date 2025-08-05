@@ -140,26 +140,26 @@ def assert_job_times_out(db: DAL, job_id: int, timeout_seconds: int):
 
 
 def test_basic_consumer(db: DAL):
-    job_id = enqueue(db, "basic", {})
-    assert_job_succeeds(db, job_id, timeout_seconds=3)
+    job = enqueue(db, "basic", {})
+    assert_job_succeeds(db, job.id, timeout_seconds=3)
 
 
 def test_breaking_consumer(db):
-    job_id = enqueue(db, "failing", {})
-    assert_job_fails(db, job_id, timeout_seconds=3)
+    job = enqueue(db, "failing", {})
+    assert_job_fails(db, job.id, timeout_seconds=3)
 
 
 def test_nonexistent_consumer(db):
-    job_id = enqueue(db, "fake", {})
-    assert_job_times_out(db, job_id, timeout_seconds=3)
+    job = enqueue(db, "fake", {})
+    assert_job_times_out(db, job.id, timeout_seconds=3)
 
 
 def test_basic_pipeline(db):
     payload = {"something": "unused"}
-    job_id = enqueue(db, "working_pipeline", payload)
-    assert_job_succeeds(db, job_id, timeout_seconds=10)
+    job = enqueue(db, "working_pipeline", payload)
+    assert_job_succeeds(db, job.id, timeout_seconds=10)
 
-    data = db.executesql(f"""select result from pgqueuer_result where job_id = {job_id}""")[0][0]
+    data = db.executesql(f"""select result from pgqueuer_result where job_id = {job.id}""")[0][0]
 
     assert data["initial"] == payload
     assert data["tasks"]["basic"]["result"] is True
@@ -185,13 +185,13 @@ def pipeline_job_ids(db: DAL, pipeline_id: int):
 
 
 def test_breaking_pipeline(db):
-    job_id = enqueue(db, "failing_pipeline", {})
-    assert_job_fails(db, job_id, timeout_seconds=3)
+    job = enqueue(db, "failing_pipeline", {})
+    assert_job_fails(db, job.id, timeout_seconds=3)
 
     # wait for trailing task to complete:
     time.sleep(5)
 
-    subjob_ids = pipeline_job_ids(db, job_id)
+    subjob_ids = pipeline_job_ids(db, job.id)
 
     def subjob_query(entrypoint: str | None):
         placeholders = {}
@@ -203,12 +203,12 @@ def test_breaking_pipeline(db):
 
         return db.executesql(
             f"""
-                              SELECT id, entrypoint, status, ok, result, completed_at
-                              FROM pgqueuer_result
-                              WHERE job_id IN {subjob_ids}
-                              {and_entrypoint}
-                              ORDER BY id
-                              """,
+                  SELECT id, entrypoint, status, ok, result, completed_at
+                  FROM pgqueuer_result
+                  WHERE job_id IN {subjob_ids}
+                  {and_entrypoint}
+                  ORDER BY id
+                  """,
             placeholders=placeholders,
             colnames=("id", "entrypoint", "status", "ok", "result", "completed_at"),
         )
@@ -222,8 +222,8 @@ def test_breaking_pipeline(db):
 
 
 def test_fault_tolerant_pipeline(db):
-    job_id = enqueue(db, "fault_tolerant_pipeline", {})
-    assert_job_succeeds(db, job_id, timeout_seconds=10)
+    job = enqueue(db, "fault_tolerant_pipeline", {})
+    assert_job_succeeds(db, job.id, timeout_seconds=10)
 
     # todo: test more state of the substeps
 
