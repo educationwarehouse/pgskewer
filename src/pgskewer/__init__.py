@@ -19,6 +19,7 @@ from pathlib import Path
 
 import asyncpg
 from anyio.to_process import run_sync
+from edwh_uuid7 import uuid7
 from pgqueuer import PgQueuer, executors
 from pgqueuer.completion import CompletionWatcher
 from pgqueuer.db import AsyncpgDriver
@@ -504,6 +505,7 @@ class ImprovedQueuer(PgQueuer):
                     substeps,
                     payload=[payload] * len(substeps),
                     priority=[0] * len(substeps),
+                    dedupe_key=[str(uuid7()) for _ in substeps],
                 )
 
                 await self.log(job, "spawned", job_ids)

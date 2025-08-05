@@ -133,7 +133,7 @@ def pgskewer_add_pgq_result_table_001(db: DAL):
                       ok           BOOLEAN                  DEFAULT TRUE,
                       result       JSON            NOT NULL,
                       completed_at TIMESTAMP       NOT NULL DEFAULT NOW(),
-                      unique_key   UUID -- pgskewer uses UUID7
+                      unique_key   UUID NOT NULL -- pgskewer uses UUID7
                   )
                   """)
 

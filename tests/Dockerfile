@@ -2,7 +2,7 @@ FROM educationwarehouse/edwhale-3.13:latest
 
 WORKDIR /srv
 
-COPY pyproject.toml .
+COPY . .
 
 RUN uv pip install -e .[dev,migrate]
 
