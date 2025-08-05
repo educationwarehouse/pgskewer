@@ -228,4 +228,9 @@ def test_fault_tolerant_pipeline(db):
     # todo: test more state of the substeps
 
 
+def test_meta_pipeline(db):
+    job = enqueue(db, "meta_pipeline", {})
+    assert_job_succeeds(db, job.id, timeout_seconds=5)
+
+
 # todo: pipeline timeouts

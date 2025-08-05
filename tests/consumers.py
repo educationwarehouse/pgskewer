@@ -67,5 +67,17 @@ async def main():
         ],
     )
 
+    @pgq.entrypoint("access_pipeline")
+    async def access_pipeline(job: Job):
+        payload = parse_payload(job.payload)
+
+        pipeline = payload.get("pipeline")
+
+        assert pipeline
+        assert pipeline["name"] == "meta_pipeline"
+        assert pipeline["steps"][0] == "access_pipeline"
+
+    pgq.entrypoint_pipeline("meta_pipeline", access_pipeline, [access_pipeline, access_pipeline])
+
     print("listening", pgq.channel)
     return pgq

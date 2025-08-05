@@ -81,6 +81,11 @@ class TaskResult(t.TypedDict):
     result: t.Any
 
 
+class PipelineMeta(t.TypedDict):
+    name: str
+    steps: list[str | list[str]]
+
+
 class PipelinePayload(t.TypedDict):
     """
     Complete payload structure for pipeline execution results.
@@ -91,6 +96,7 @@ class PipelinePayload(t.TypedDict):
     """
 
     initial: t.Any
+    pipeline: PipelineMeta
     tasks: dict[str, TaskResult]
 
 
@@ -479,6 +485,10 @@ class ImprovedQueuer(PgQueuer):
         async def callback(job: Job) -> PipelinePayload:
             results: PipelinePayload = {
                 "initial": safe_json(job.payload) or None,
+                "pipeline": {
+                    "name": job.entrypoint,
+                    "steps": steps,
+                },
                 "tasks": {},
             }
 
@@ -539,9 +549,7 @@ class ImprovedQueuer(PgQueuer):
             A decorator that registers the pipeline as an entrypoint.
 
         Example:
-            >>> @pgq.entrypoint_pipeline("data_processing", "extract", ["transform", "validate"], "load")
-            ... async def data_pipeline(job: Job):
-            ...     pass  # This function won't be called, pipeline logic is used instead
+            >>> pgq.entrypoint_pipeline("data_processing", "extract", ["transform", "validate"], "load")
         """
 
         return self.entrypoint(name)(self.pipeline(*input_steps, check=check))
