@@ -124,17 +124,16 @@ def pgskewer_install_pgq_tables_001(db: DAL):
 @migration()
 def pgskewer_add_pgq_result_table_001(db: DAL):
     db.executesql("""
-                  CREATE TABLE "pgqueuer_result"
-                  (
-                      id           SERIAL PRIMARY KEY,
-                      job_id       BIGINT          NOT NULL,
-                      entrypoint   TEXT            NOT NULL,
-                      status       pgqueuer_status NOT NULL,
-                      ok           BOOLEAN                  DEFAULT TRUE,
-                      result       JSON            NOT NULL,
-                      completed_at TIMESTAMP       NOT NULL DEFAULT NOW(),
-                      unique_key   UUID NOT NULL -- pgskewer uses UUID7
-                  )
+                  CREATE TABLE "pgqueuer_result" (
+                                                     id           SERIAL PRIMARY KEY,
+                                                     job_id       BIGINT          NOT NULL,
+                                                     entrypoint   TEXT            NOT NULL,
+                                                     status       pgqueuer_status NOT NULL,
+                                                     ok           BOOLEAN                  DEFAULT TRUE,
+                                                     result       JSON            NOT NULL,
+                                                     completed_at TIMESTAMP       NOT NULL DEFAULT NOW(),
+                                                     unique_key   UUID            NOT NULL -- pgskewer uses UUID7
+                                                 )
                   """)
 
     db.commit()
@@ -234,6 +233,29 @@ def pgskewer_add_spawned_status_to_pgqueuer_status(db: DAL):
     -- for logging when a pipeline spawns subtasks
     ALTER TYPE pgqueuer_status ADD VALUE 'spawned';
     """)
+    db.commit()
+    return True
+
+
+@migration()
+def pgskewer_results_durability_001(db: DAL):
+    # based on `pgskewer_durability_001`
+
+    db.executesql("""
+                  ALTER TABLE pgqueuer_result
+                      SET UNLOGGED;
+
+                  ALTER TABLE pgqueuer_result
+                      SET (
+                          /* essentially disable vacuum (but keep freeze safety)    */
+                          AUTOVACUUM_VACUUM_SCALE_FACTOR = 0.95,
+                          AUTOVACUUM_VACUUM_THRESHOLD = 1000000,
+
+                          /* still analyse at ~5 %% growth so estimates stay OK      */
+                          AUTOVACUUM_ANALYZE_SCALE_FACTOR = 0.05,
+                          AUTOVACUUM_ANALYZE_THRESHOLD = 10000
+                          );
+                  """)
     db.commit()
     return True
 
