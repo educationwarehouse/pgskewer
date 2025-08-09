@@ -26,6 +26,7 @@ def queue_job(
     payload: str | dict,
     priority: int = 10,
     execute_after: t.Optional[dt.datetime] = None,
+    unique_key: str | uuid.UUID | None = None,
 ) -> EnqueuedJob:
     """
     Queue a job in the pgqueuer table and log it in pgqueuer_log.
@@ -36,11 +37,12 @@ def queue_job(
         payload (dict): Payload for the job.
         priority (int, optional): Job priority (default is 10).
         execute_after (datetime, optional): When to execute the job. Defaults to datetime.now().
+        unique_key: since job ids only live temporarily, these keys can be used to uniquely identify a run.
 
     Returns:
         int: The ID of the queued job.
     """
-    unique_key = uuid7()
+    unique_key = unique_key or uuid7()
 
     execute_after = execute_after or utcnow()
 
