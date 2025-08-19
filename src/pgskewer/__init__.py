@@ -25,6 +25,8 @@ from pgqueuer.completion import CompletionWatcher
 from pgqueuer.db import AsyncpgDriver
 from pgqueuer.models import JOB_STATUS, Job
 
+from .helpers import safe_json
+
 type AsyncTask = t.Callable[[Job], t.Awaitable[t.Any]]
 # type AsyncTask = executors.AsyncEntrypoint
 
@@ -843,42 +845,6 @@ async def unblock[**P, R](sync_fn: t.Callable[P, R], *args: P.args, logs: bool =
                 await asyncio.gather(stdout_streamer, stderr_streamer, return_exceptions=True)
             except asyncio.CancelledError:
                 pass
-
-
-def safe_json(data: bytes | str | None) -> t.Any | None:
-    """
-    Safely parse JSON data with error handling.
-
-    This function attempts to parse JSON data from bytes or string input,
-    handling various error conditions gracefully by returning None instead
-    of raising exceptions.
-
-    Args:
-        data: The data to parse. Can be bytes, string, or None.
-
-    Returns:
-        The parsed JSON object, or None if parsing fails or data is empty.
-
-    Example:
-        >>> safe_json('{"key": "value"}')
-        {'key': 'value'}
-        >>> safe_json(b'{"key": "value"}')
-        {'key': 'value'}
-        >>> safe_json('invalid json')
-        None
-        >>> safe_json(None)
-        None
-    """
-
-    if not data:  # pragma: no cover
-        return None
-
-    data = data.decode() if isinstance(data, bytes) else data
-
-    try:
-        return json.loads(data)
-    except (TypeError, ValueError, json.decoder.JSONDecodeError):  # pragma: no cover
-        return None
 
 
 def parse_payload(data: bytes | str | None) -> PipelinePayload:

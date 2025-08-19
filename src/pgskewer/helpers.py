@@ -89,3 +89,39 @@ def queue_job(
 
     db.commit()
     return EnqueuedJob(job_id, unique_key, db)
+
+
+def safe_json(data: bytes | str | None) -> t.Any | None:
+    """
+    Safely parse JSON data with error handling.
+
+    This function attempts to parse JSON data from bytes or string input,
+    handling various error conditions gracefully by returning None instead
+    of raising exceptions.
+
+    Args:
+        data: The data to parse. Can be bytes, string, or None.
+
+    Returns:
+        The parsed JSON object, or None if parsing fails or data is empty.
+
+    Example:
+        >>> safe_json('{"key": "value"}')
+        {'key': 'value'}
+        >>> safe_json(b'{"key": "value"}')
+        {'key': 'value'}
+        >>> safe_json('invalid json')
+        None
+        >>> safe_json(None)
+        None
+    """
+
+    if not data:
+        return None
+
+    data = data.decode() if isinstance(data, bytes) else data
+
+    try:
+        return json.loads(data)
+    except (TypeError, ValueError, json.decoder.JSONDecodeError):
+        return None
