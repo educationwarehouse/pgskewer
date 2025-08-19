@@ -1,0 +1,9 @@
+[paths]
+source =
+    ./src
+    /srv/src
+
+tests =
+    ./tests
+    /srv/tests
+

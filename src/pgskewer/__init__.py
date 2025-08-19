@@ -63,7 +63,7 @@ async def named_future(
     try:
         result = await fut
         return substep, job_id, result
-    except Exception as e:
+    except Exception as e:  # pragma: no cover
         return substep, job_id, e  # Still capture which substep failed
 
 
@@ -187,7 +187,7 @@ class ImprovedQueuer(PgQueuer):
         """
 
         def decorator(func: AsyncTask) -> AsyncTask:
-            if not is_async(func):
+            if not is_async(func):  # pragma: no cover
                 raise RuntimeError(
                     f"Please use only `async` functions (with `unblock`) for pgskewer entrypoints! (culprit: {func.__name__})"
                 )
@@ -249,8 +249,10 @@ class ImprovedQueuer(PgQueuer):
             job_row = (
                 await self.connection.fetch(
                     """
-            SELECT dedupe_key FROM pgqueuer WHERE id = $1;
-            """,
+                    SELECT dedupe_key
+                    FROM pgqueuer
+                    WHERE id = $1;
+                    """,
                     job.id,
                 )
             )[0]
@@ -370,13 +372,13 @@ class ImprovedQueuer(PgQueuer):
     ):
         await self.connection.execute(
             """
-                             INSERT INTO pgqueuer_log (job_id, status, priority, entrypoint, traceback)
-                             VALUES ($1,
-                                     $2,
-                                     $3,
-                                     $4,
-                                     $5)
-                             """,
+            INSERT INTO pgqueuer_log (job_id, status, priority, entrypoint, traceback)
+            VALUES ($1,
+                    $2,
+                    $3,
+                    $4,
+                    $5)
+            """,
             job.id,
             status,
             priority,
@@ -439,9 +441,9 @@ class ImprovedQueuer(PgQueuer):
         """
 
         # todo:
-        #  - configuring data retention (currently: every step is saved and the final result pipeline also contains all data)
         #  - configuring timeouts (which pgqueuer doesn't seem to support?)
         #  - configuring retries (which pgqueuer should already support?)
+        #  - improved pytests/coverage
 
         key_to_fn = t.cast(
             dict[str, AsyncTask],
@@ -605,7 +607,7 @@ class ImprovedQueuer(PgQueuer):
                 return result
 
             # Check if we've exceeded the timeout
-            if timeout is not None:
+            if timeout is not None:  # todo: pytests?
                 elapsed = asyncio.get_event_loop().time() - start_time
                 if elapsed >= timeout:
                     return None  # Return None if timeout reached
@@ -676,7 +678,7 @@ def _unblock_with_logs[P, R](
         This function is designed to be used with anyio.to_process.run_sync
         for converting blocking operations to async with log capture.
     """
-
+    # todo: pytests?
     # low buffering for autoflush (0 only works with binary-mode; 1 means line-mode)
     with (
         open(stdout_path, "w", buffering=1) as out,
@@ -779,7 +781,7 @@ async def unblock[**P, R](sync_fn: t.Callable[P, R], *args: P.args, logs: bool =
         >>> result = await unblock(slow_task, 5)
         >>> print(result)  # "Done in 5s"
     """
-
+    # todo: include unblock() in the test scenario's!
     if not logs:
         # logs are redirected to /dev/null by anyio
         return await run_sync(sync_fn, *args, cancellable=True)
@@ -868,14 +870,14 @@ def safe_json(data: bytes | str | None) -> t.Any | None:
         None
     """
 
-    if not data:
+    if not data:  # pragma: no cover
         return None
 
-    data = data.decode() if not isinstance(data, str) else data
+    data = data.decode() if isinstance(data, bytes) else data
 
     try:
         return json.loads(data)
-    except (TypeError, ValueError, json.decoder.JSONDecodeError):
+    except (TypeError, ValueError, json.decoder.JSONDecodeError):  # pragma: no cover
         return None
 
 

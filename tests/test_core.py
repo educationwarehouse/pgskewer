@@ -32,7 +32,7 @@ def docker_compose():
         except Exception as e:
             print(f"db still starting, waiting 1s; {type(e)} {str(e)}")
             time.sleep(1)
-    else:
+    else:  # pragma: no cover
         print("db down too long, stopping")
         stop_dc()
         raise RuntimeError("db down too long, stopping")
@@ -75,9 +75,9 @@ def assert_job_succeeds(db: DAL, job_id: int, timeout_seconds: int = DEFAULT_TIM
         )
 
         # Check if job failed with exception
-        if len(exception_logs) > 0:
+        if len(exception_logs) > 0:  # pragma: no cover
             print(exception_logs)
-            pytest.fail(f"Job {job_id} failed with exception instead of succeeding")
+            pytest.fail(f"Job {job_id} failed with exception instead of succeeding")  # pragma: no cover
 
         # Check for good result:
         # - pgqueuer has no rows anymore (job removed from queue)
@@ -88,7 +88,7 @@ def assert_job_succeeds(db: DAL, job_id: int, timeout_seconds: int = DEFAULT_TIM
             return  # Test passes - exit early on success
 
     # If we reach here, the loop completed without finding success
-    pytest.fail(f"Job {job_id} did not complete successfully within timeout")
+    pytest.fail(f"Job {job_id} did not complete successfully within timeout")  # pragma: no cover
 
 
 def assert_job_fails(db: DAL, job_id: int, timeout_seconds: int = DEFAULT_TIMEOUT):
@@ -113,7 +113,7 @@ def assert_job_fails(db: DAL, job_id: int, timeout_seconds: int = DEFAULT_TIMEOU
             return  # Test passes - job failed as expected
 
     # If we reach here, the loop completed without finding the expected failure
-    pytest.fail(f"Job {job_id} did not fail as expected within timeout")
+    pytest.fail(f"Job {job_id} did not fail as expected within timeout")  # pragma: no cover
 
 
 def assert_job_times_out(db: DAL, job_id: int, timeout_seconds: int):
@@ -136,7 +136,7 @@ def assert_job_times_out(db: DAL, job_id: int, timeout_seconds: int):
         print(f"Job {job_id} remained unprocessed as expected!")
         return  # Test passes - job was never picked up
 
-    pytest.fail(f"Job {job_id} was unexpectedly processed or state is incorrect")
+    pytest.fail(f"Job {job_id} was unexpectedly processed or state is incorrect")  # pragma: no cover
 
 
 def test_basic_consumer(db: DAL):
@@ -212,6 +212,8 @@ def test_breaking_pipeline(db):
             placeholders=placeholders,
             colnames=("id", "entrypoint", "status", "ok", "result", "completed_at"),
         )
+
+    assert len(subjob_query("failing")) < len(subjob_query(None))
 
     # todo: this SHOULD have a result:
     assert subjob_query("failing")[0]["ok"] is False

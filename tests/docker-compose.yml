@@ -17,17 +17,21 @@ services:
     build:
       context: ..
       dockerfile: tests/Dockerfile
-    command: pgq run tests.consumers:main --batch-size 1
+    command: "coverage run --parallel-mode --data-file=/coverage/.coverage --source=/srv /opt/venv/bin/pgq run tests.consumers:main --batch-size 1"
     depends_on:
       - postgres
     volumes:
       - type: bind
         source: ..
         target: /srv
+      - type: bind
+        source: ./coverage
+        target: /coverage
     environment:
       POSTGRES_URI: postgres://test_user:test_password@postgres:5432/test_db
       MIGRATE_URI: postgres://test_user:test_password@postgres:5432/test_db
       DB_FOLDER: /tmp
     deploy:
       replicas: 3
+
 
