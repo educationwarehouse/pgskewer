@@ -76,6 +76,7 @@ async def main():
     async def pull_apart_song_step(job: Job):
         payload = parse_payload(job.payload)
         assert "initial" in payload
+        assert "audio_file" in payload["initial"] or "audio_file" in str(payload["tasks"])
         return True
 
     pgq.entrypoint_pipeline("pull_apart_song", pull_apart_song_step)

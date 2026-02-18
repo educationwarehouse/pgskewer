@@ -109,20 +109,22 @@ class SkewerException(Exception): ...
 class SubstepFailed(SkewerException): ...
 
 
-def _extract_initial_payload(payload: t.Any) -> t.Any:
+def _extract_initial_payload(payload: t.Any) -> tuple[t.Any, dict[str, TaskResult]]:
     """
     Preserve the original root input when a pipeline step invokes another pipeline.
 
     Nested pipelines receive the parent pipeline payload (`initial`, `pipeline`, `tasks`).
-    For those cases, this returns the parent's `initial` value instead of wrapping
-    the full payload again under another `initial` key.
+    For those cases, this returns the parent's `initial` value and carries forward
+    already-completed parent tasks.
     """
+    if payload is None:
+        return None, {}
 
     if not isinstance(payload, dict):
-        return payload
+        return payload, {}
 
     pipeline_meta = payload.get("pipeline")
-    tasks = payload.get("tasks")
+    tasks = payload.get("tasks", {})
 
     if (
         "initial" in payload
@@ -131,9 +133,9 @@ def _extract_initial_payload(payload: t.Any) -> t.Any:
         and "steps" in pipeline_meta
         and isinstance(tasks, dict)
     ):
-        return payload["initial"]
+        return payload["initial"], dict(tasks)
 
-    return payload
+    return payload, {}
 
 
 def is_async(fn: t.Callable[..., t.Awaitable[...]]) -> bool:
@@ -516,13 +518,16 @@ class ImprovedQueuer(PgQueuer):
 
         async def callback(job: Job) -> PipelinePayload:
             raw_payload = safe_json(job.payload)
+
+            initial, tasks = _extract_initial_payload(raw_payload)
+
             results: PipelinePayload = {
-                "initial": _extract_initial_payload(raw_payload) if raw_payload is not None else None,
+                "initial": initial,
                 "pipeline": {
                     "name": job.entrypoint,
                     "steps": steps,
                 },
-                "tasks": {},
+                "tasks": tasks,
             }
 
             driver = self.connection
