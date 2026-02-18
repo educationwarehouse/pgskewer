@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.1 (2026-02-18)
+
+### Fix
+
+* Better support for chaining pipelines ([`50a45b7`](https://github.com/educationwarehouse/pgskewer/commit/50a45b79cdfc9506d184685819d87b8ef611b1e7))
+
 ## v0.1.0 (2025-09-01)
 
 ### Feature
