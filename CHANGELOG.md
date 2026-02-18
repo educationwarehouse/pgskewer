@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.2 (2026-02-18)
+
+### Fix
+
+* Better support for chaining pipelines (also forwards 'tasks') ([`8e7002b`](https://github.com/educationwarehouse/pgskewer/commit/8e7002bc1e40a238d1a74b635ac1870ee8c79797))
+
 ## v0.1.1 (2026-02-18)
 
 ### Fix
