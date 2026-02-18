@@ -235,4 +235,15 @@ def test_meta_pipeline(db):
     assert_job_succeeds(db, job.id, timeout_seconds=5)
 
 
+def test_composed_pipeline_does_not_nest_initial(db):
+    payload = {"url": "https://www.vimeo.com/xyz", "download_dir": "/data/music/test"}
+    job = enqueue(db, "download_and_pull_apart_song", payload)
+    assert_job_succeeds(db, job.id, timeout_seconds=5)
+
+    data = db.executesql(f"""select result from pgqueuer_result where job_id = {job.id}""")[0][0]
+
+    nested_result = data["tasks"]["pull_apart_song"]["result"]
+    assert nested_result["initial"] == payload
+
+
 # todo: pipeline timeouts

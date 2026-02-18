@@ -67,6 +67,20 @@ async def main():
         ],
     )
 
+    @pgq.entrypoint("download_url_audio")
+    async def download_url_audio(job: Job):
+        payload = parse_payload(job.payload)
+        return {"source_url": payload["initial"]["url"], "audio_file": "/tmp/mock.wav"}
+
+    @pgq.entrypoint("pull_apart_song_step")
+    async def pull_apart_song_step(job: Job):
+        payload = parse_payload(job.payload)
+        assert "initial" in payload
+        return True
+
+    pgq.entrypoint_pipeline("pull_apart_song", pull_apart_song_step)
+    pgq.entrypoint_pipeline("download_and_pull_apart_song", download_url_audio, "pull_apart_song")
+
     @pgq.entrypoint("access_pipeline")
     async def access_pipeline(job: Job):
         payload = parse_payload(job.payload)

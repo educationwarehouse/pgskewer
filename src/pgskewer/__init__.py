@@ -109,6 +109,33 @@ class SkewerException(Exception): ...
 class SubstepFailed(SkewerException): ...
 
 
+def _extract_initial_payload(payload: t.Any) -> t.Any:
+    """
+    Preserve the original root input when a pipeline step invokes another pipeline.
+
+    Nested pipelines receive the parent pipeline payload (`initial`, `pipeline`, `tasks`).
+    For those cases, this returns the parent's `initial` value instead of wrapping
+    the full payload again under another `initial` key.
+    """
+
+    if not isinstance(payload, dict):
+        return payload
+
+    pipeline_meta = payload.get("pipeline")
+    tasks = payload.get("tasks")
+
+    if (
+        "initial" in payload
+        and isinstance(pipeline_meta, dict)
+        and "name" in pipeline_meta
+        and "steps" in pipeline_meta
+        and isinstance(tasks, dict)
+    ):
+        return payload["initial"]
+
+    return payload
+
+
 def is_async(fn: t.Callable[..., t.Awaitable[...]]) -> bool:
     """
     Determine whether a given callable is an asynchronous function.
@@ -488,8 +515,9 @@ class ImprovedQueuer(PgQueuer):
                             )
 
         async def callback(job: Job) -> PipelinePayload:
+            raw_payload = safe_json(job.payload)
             results: PipelinePayload = {
-                "initial": safe_json(job.payload) or None,
+                "initial": _extract_initial_payload(raw_payload) if raw_payload is not None else None,
                 "pipeline": {
                     "name": job.entrypoint,
                     "steps": steps,
