@@ -18,7 +18,7 @@ import typing as t
 from pathlib import Path
 
 import asyncpg
-from anyio.to_process import run_sync
+import dill
 from edwh_uuid7 import uuid7
 from pgqueuer import PgQueuer, executors
 from pgqueuer.completion import CompletionWatcher
@@ -29,9 +29,6 @@ from .helpers import safe_json
 
 type AsyncTask = t.Callable[[Job], t.Awaitable[t.Any]]
 # type AsyncTask = executors.AsyncEntrypoint
-
-# ASCII End of Transmission character (EOT)
-END_OF_TRANSMISSION = "\x04"
 
 
 # Wrap each job with the substep name and job id, using a helper coroutine
@@ -687,54 +684,64 @@ class ImprovedQueuer(PgQueuer):
         return cls(driver)
 
 
-def _unblock_with_logs[P, R](
-    sync_fn: t.Callable[[t.Unpack[P]], R],
-    stdout_path: str,
-    stderr_path: str,
-    *args: t.Unpack[P],
-) -> R:
-    """
-    Execute a synchronous function with stdout/stderr redirected to files.
+def _serialize_callable_and_args(sync_fn: t.Callable[..., t.Any], args: tuple[t.Any, ...]) -> tuple[bytes, bytes]:
+    return dill.dumps(sync_fn, recurse=True), dill.dumps(args, recurse=True)  # nosec
 
-    This function redirects the standard output and error streams to specified
-    files, executes the function, and then restores the original streams.
-    It also writes an End of Transmission (EOT) character to signal completion.
 
-    Args:
-        sync_fn: The synchronous function to execute.
-        stdout_path: Path to redirect stdout to.
-        stderr_path: Path to redirect stderr to.
-        *args: Arguments to pass to the synchronous function.
+async def _run_subprocess_callable(
+    sync_fn: t.Callable[..., t.Any],
+    args: tuple[t.Any, ...],
+    stdout_path: Path | None,
+    stderr_path: Path | None,
+) -> t.Any:
+    fn_bytes, args_bytes = _serialize_callable_and_args(sync_fn, args)
 
-    Returns:
-        The return value of the synchronous function.
+    with tempfile.TemporaryDirectory() as work_dir:
+        work_path = Path(work_dir)
+        fn_path = work_path / "fn.bin"
+        args_path = work_path / "args.bin"
+        result_path = work_path / "result.bin"
+        error_path = work_path / "error.bin"
 
-    Note:
-        This function is designed to be used with anyio.to_process.run_sync
-        for converting blocking operations to async with log capture.
-    """
-    # todo: pytests?
-    # low buffering for autoflush (0 only works with binary-mode; 1 means line-mode)
-    with (
-        open(stdout_path, "w", buffering=1) as out,
-        open(stderr_path, "w", buffering=1) as err,
-    ):
-        _out = sys.stdout
-        _err = sys.stderr
-        sys.stdout = out
-        sys.stderr = err
+        fn_path.write_bytes(fn_bytes)
+        args_path.write_bytes(args_bytes)
+
+        worker_stdout_path = stdout_path or Path(os.devnull)
+        worker_stderr_path = stderr_path or Path(os.devnull)
+
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            f"{__name__}._unblock_worker",
+            str(fn_path),
+            str(args_path),
+            str(result_path),
+            str(error_path),
+            str(worker_stdout_path),
+            str(worker_stderr_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
         try:
-            return sync_fn(*args)
-        finally:
-            # Write EOT character to signal completion
-            print(END_OF_TRANSMISSION, file=out, flush=True)
-            print(END_OF_TRANSMISSION, file=err, flush=True)
-            # reset streams:
-            sys.stdout = _out
-            sys.stderr = _err
-            # Force flush before closing
-            out.flush()
-            err.flush()
+            return_code = await proc.wait()
+        except asyncio.CancelledError:
+            if proc.returncode is None:
+                proc.kill()
+            await proc.wait()
+            raise
+
+        serializer: t.Any = dill
+
+        if return_code == 0:
+            return serializer.loads(result_path.read_bytes())  # nosec
+
+        if error_path.exists() and error_path.stat().st_size:
+            exc = serializer.loads(error_path.read_bytes())  # nosec
+            if isinstance(exc, BaseException):
+                raise exc
+            raise RuntimeError(f"unblock() worker returned non-exception error payload: {exc!r}")
+
+        raise RuntimeError(f"unblock() worker exited with status {return_code} without error payload")
 
 
 async def stream_file(file_path: Path, stream: t.Literal["out", "err"], stop_event: asyncio.Event = None):
@@ -742,8 +749,8 @@ async def stream_file(file_path: Path, stream: t.Literal["out", "err"], stop_eve
     Stream a file's content in real-time to stdout or stderr.
 
     This function continuously reads from a file and writes new content to
-    the specified output stream. It stops when an End of Transmission (EOT)
-    character is detected or when the stop_event is set.
+    the specified output stream. It stops when the stop_event is set and
+    there is no unread content left in the file.
 
     Args:
         file_path: Path to the file to stream.
@@ -760,27 +767,21 @@ async def stream_file(file_path: Path, stream: t.Literal["out", "err"], stop_eve
 
     pos = 0
     output_stream = sys.stdout if stream == "out" else sys.stderr
-    eot_detected = False
-
-    while not eot_detected and not (stop_event and stop_event.is_set()):
+    while True:
+        wrote_content = False
         if file_path.exists():
             with open(file_path, "r") as f:
                 f.seek(pos)
                 new_content = f.read()
                 if new_content:
-                    # Check for EOT character
-                    if END_OF_TRANSMISSION in new_content:
-                        eot_detected = True
-
-                    # Just write the content, no need to filter EOT as it's invisible
                     output_stream.write(new_content)
                     output_stream.flush()  # Force flush for real-time output
+                    wrote_content = True
 
                 pos = f.tell()
 
-                # If we found EOT, no need to continue
-                if eot_detected:
-                    break
+        if stop_event and stop_event.is_set() and not wrote_content:
+            break
 
         await asyncio.sleep(0.1)
 
@@ -818,8 +819,7 @@ async def unblock[**P, R](sync_fn: t.Callable[P, R], *args: P.args, logs: bool =
     """
     # todo: include unblock() in the test scenario's!
     if not logs:
-        # logs are redirected to /dev/null by anyio
-        return await run_sync(sync_fn, *args, cancellable=True)
+        return t.cast(R, await _run_subprocess_callable(sync_fn, tuple(args), None, None))
 
     # store logs in a file so we can read them:
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -841,16 +841,9 @@ async def unblock[**P, R](sync_fn: t.Callable[P, R], *args: P.args, logs: bool =
 
         try:
             # Run the subprocess
-            result = await run_sync(
-                _unblock_with_logs,
-                sync_fn,
-                str(stdout_path),
-                str(stderr_path),
-                *args,
-                cancellable=True,
-            )
+            result = t.cast(R, await _run_subprocess_callable(sync_fn, tuple(args), stdout_path, stderr_path))
 
-            # No need to sleep, just wait for streamers to finish reading EOT
+            # Wait briefly so streamers can flush remaining content.
             await asyncio.wait([stdout_streamer, stderr_streamer], timeout=1.0)
 
             return result
@@ -858,15 +851,6 @@ async def unblock[**P, R](sync_fn: t.Callable[P, R], *args: P.args, logs: bool =
         finally:
             # Clean up streaming tasks
             stop_event.set()
-
-            # Make sure EOT is written if tasks are cancelled
-            for path in (stdout_path, stderr_path):
-                if path.exists():
-                    try:
-                        with open(path, "a", buffering=1) as f:
-                            f.write(END_OF_TRANSMISSION)
-                    except Exception:
-                        pass
 
             # Cancel tasks if they're still running
             for task in [stdout_streamer, stderr_streamer]:
