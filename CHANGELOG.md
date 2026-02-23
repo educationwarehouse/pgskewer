@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.2.0 (2026-02-23)
+
+### Feature
+
+* **unblock:** Replace anyio to_process with custom subprocess implementation ([`274a7b6`](https://github.com/educationwarehouse/pgskewer/commit/274a7b6565fd78acfac4cf271d095c756c3fc2ab))
+
 ## v0.1.2 (2026-02-18)
 
 ### Fix
