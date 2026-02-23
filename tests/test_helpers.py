@@ -75,8 +75,18 @@ async def test_unblock_forwards_exceptions():
         await unblock(fail_blocker, logs=False)
 
 
+async def test_unblock_exception_contains_worker_traceback():
+    with pytest.raises(UnblockTestError) as exc_info:
+        await unblock(fail_blocker)
+
+    notes = getattr(exc_info.value, "__notes__", [])
+    joined = "\n".join(notes)
+    assert "Remote traceback from unblock worker:" in joined
+    assert "fail_blocker" in joined
+
+
 async def test_unblock_cancel_propagates():
-    task = asyncio.create_task(unblock(sleep_blocker, 5))
+    task = asyncio.create_task(unblock(sleep_blocker, 5000))
     await asyncio.sleep(0.1)
     task.cancel()
 

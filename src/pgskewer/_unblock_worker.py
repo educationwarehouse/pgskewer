@@ -6,10 +6,20 @@ import dill
 
 
 def _dump_exception(error_path: str, exc: BaseException) -> None:
+    tb = traceback.format_exc()
+    payload_data = {
+        "exc": exc,
+        "traceback": tb,
+    }
     try:
-        payload = dill.dumps(exc)
+        payload = dill.dumps(payload_data)
     except Exception:
-        payload = dill.dumps(RuntimeError(traceback.format_exc()))
+        payload = dill.dumps(
+            {
+                "exc": RuntimeError(str(exc)),
+                "traceback": tb,
+            }
+        )
 
     with open(error_path, "wb") as fh:
         fh.write(payload)
@@ -35,10 +45,10 @@ def main() -> int:
     2. Deserialize callable and positional args from the input files via `dill`.
     3. Redirect `stdout`/`stderr` into dedicated files (line-buffered), so
        the parent process can stream logs in near real time.
-    5. Run the callable:
+    4. Run the callable:
        - on success: serialize return value to `result_path`, exit code `0`
-       - on failure: serialize exception to `error_path`, exit code `1`
-    6. Close redirected stdout/stderr when done; parent-side streamers stop
+       - on failure: serialize exception + traceback to `error_path`, exit code `1`
+    5. Close redirected stdout/stderr when done; parent-side streamers stop
        when the parent signals completion and no more bytes are observed.
 
     Serialization strategy:

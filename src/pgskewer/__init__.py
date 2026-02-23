@@ -688,6 +688,19 @@ def _serialize_callable_and_args(sync_fn: t.Callable[..., t.Any], args: tuple[t.
     return dill.dumps(sync_fn, recurse=True), dill.dumps(args, recurse=True)  # nosec
 
 
+def _attach_worker_traceback(exc: BaseException, worker_traceback: str | None) -> BaseException:
+    if not worker_traceback:
+        return exc
+
+    note = "Remote traceback from unblock worker:\n" + worker_traceback.rstrip()
+    try:
+        exc.add_note(note)
+        return exc
+    except Exception:
+        # Extremely defensive fallback for exception types without add_note.
+        return RuntimeError(f"{exc}\n\n{note}")
+
+
 async def _run_subprocess_callable(
     sync_fn: t.Callable[..., t.Any],
     args: tuple[t.Any, ...],
@@ -736,10 +749,19 @@ async def _run_subprocess_callable(
             return serializer.loads(result_path.read_bytes())  # nosec
 
         if error_path.exists() and error_path.stat().st_size:
-            exc = serializer.loads(error_path.read_bytes())  # nosec
-            if isinstance(exc, BaseException):
-                raise exc
-            raise RuntimeError(f"unblock() worker returned non-exception error payload: {exc!r}")
+            payload = serializer.loads(error_path.read_bytes())  # nosec
+
+            # Backward compatibility with older worker payloads.
+            if isinstance(payload, BaseException):
+                raise payload
+
+            if isinstance(payload, dict):
+                exc = payload.get("exc")
+                worker_traceback = payload.get("traceback")
+                if isinstance(exc, BaseException):
+                    raise _attach_worker_traceback(exc, worker_traceback)
+
+            raise RuntimeError(f"unblock() worker returned non-exception error payload: {payload!r}")
 
         raise RuntimeError(f"unblock() worker exited with status {return_code} without error payload")
 
