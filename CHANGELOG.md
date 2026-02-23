@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.2.1 (2026-02-23)
+
+### Fix
+
+* **unblock:** Include worker traceback on exception ([`1e62fc7`](https://github.com/educationwarehouse/pgskewer/commit/1e62fc7c5499d0cfdf5158b148b19dec607ae98c))
+
 ## v0.2.0 (2026-02-23)
 
 ### Feature
