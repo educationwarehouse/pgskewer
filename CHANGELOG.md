@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.3.0 (2026-05-28)
+
+### Feature
+
+* Add `dill=True` support to `enqueue` for when a JSON object is not enough ([`18c409d`](https://github.com/educationwarehouse/pgskewer/commit/18c409d2c5082a83b85ce417588441f42cec5f4f))
+
 ## v0.2.1 (2026-02-23)
 
 ### Fix
