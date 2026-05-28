@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 
 from edwh_migrate import activate_migrations
 
@@ -23,6 +24,17 @@ async def main():
         await asyncio.sleep(1)
         print("failing")
         assert False
+
+
+    @pgq.entrypoint("dill")
+    async def dill_entrypoint(job: Job):
+        data = parse_payload(job.payload)
+
+        assert isinstance(data, dict), "dat should be a dict"
+
+        assert data["key"] is datetime.UTC, "dat should have key=<UTC object>"
+
+        return True
 
     @pgq.entrypoint("slow_cancelable")
     async def slow_cancelable(job: Job):

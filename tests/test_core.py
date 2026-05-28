@@ -1,3 +1,4 @@
+import datetime
 import os
 import time
 
@@ -153,6 +154,13 @@ def test_nonexistent_consumer(db):
     job = enqueue(db, "fake", {})
     assert_job_times_out(db, job.id, timeout_seconds=3)
 
+def test_dill_consumer(db):
+    with pytest.raises(TypeError):
+        fails = enqueue(db, "dill", {"key": datetime.UTC})
+
+    job = enqueue(db, "dill", {"key": datetime.UTC}, dill=True)
+
+    assert_job_succeeds(db, job.id, timeout_seconds=3)
 
 def test_basic_pipeline(db):
     payload = {"something": "unused"}

@@ -25,7 +25,7 @@ from pgqueuer.completion import CompletionWatcher
 from pgqueuer.db import AsyncpgDriver
 from pgqueuer.models import JOB_STATUS, Job
 
-from .helpers import safe_json
+from .helpers import safe_json, safe_dill
 
 type AsyncTask = t.Callable[[Job], t.Awaitable[t.Any]]
 # type AsyncTask = executors.AsyncEntrypoint
@@ -906,4 +906,4 @@ def parse_payload(data: bytes | str | None) -> PipelinePayload:
         >>> print(payload["initial"])  # {"id": 1}
     """
 
-    return safe_json(data)
+    return safe_dill(data) or safe_json(data)
