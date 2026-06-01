@@ -1,3 +1,4 @@
+import datetime
 import os
 import time
 
@@ -153,6 +154,13 @@ def test_nonexistent_consumer(db):
     job = enqueue(db, "fake", {})
     assert_job_times_out(db, job.id, timeout_seconds=3)
 
+def test_dill_consumer(db):
+    with pytest.raises(TypeError):
+        fails = enqueue(db, "dill", {"key": datetime.UTC})
+
+    job = enqueue(db, "dill", {"key": datetime.UTC}, dill=True)
+
+    assert_job_succeeds(db, job.id, timeout_seconds=3)
 
 def test_basic_pipeline(db):
     payload = {"something": "unused"}
@@ -233,6 +241,17 @@ def test_fault_tolerant_pipeline(db):
 def test_meta_pipeline(db):
     job = enqueue(db, "meta_pipeline", {})
     assert_job_succeeds(db, job.id, timeout_seconds=5)
+
+
+def test_composed_pipeline_does_not_nest_initial(db):
+    payload = {"url": "https://www.vimeo.com/xyz", "download_dir": "/data/music/test"}
+    job = enqueue(db, "download_and_pull_apart_song", payload)
+    assert_job_succeeds(db, job.id, timeout_seconds=5)
+
+    data = db.executesql(f"""select result from pgqueuer_result where job_id = {job.id}""")[0][0]
+
+    nested_result = data["tasks"]["pull_apart_song"]["result"]
+    assert nested_result["initial"] == payload
 
 
 # todo: pipeline timeouts

@@ -3,9 +3,13 @@ import datetime as dt
 import json
 import typing as t
 import uuid
+from pickle import UnpicklingError
 
 from edwh_uuid7 import uuid7
 from pydal import DAL
+
+from dill import dumps as dill_encode
+from dill import loads as dill_decode
 
 
 def utcnow():
@@ -27,6 +31,7 @@ def queue_job(
     priority: int = 10,
     execute_after: t.Optional[dt.datetime] = None,
     unique_key: str | uuid.UUID | None = None,
+    dill: bool = False,
 ) -> EnqueuedJob:
     """
     Queue a job in the pgqueuer table and log it in pgqueuer_log.
@@ -38,6 +43,7 @@ def queue_job(
         priority (int, optional): Job priority (default is 10).
         execute_after (datetime, optional): When to execute the job. Defaults to datetime.now().
         unique_key: since job ids only live temporarily, these keys can be used to uniquely identify a run.
+        dill: use binary serialization instead of json?
 
     Returns:
         int: The ID of the queued job.
@@ -45,6 +51,14 @@ def queue_job(
     unique_key = unique_key or uuid7()
 
     execute_after = execute_after or utcnow()
+
+    if isinstance(payload, (str, bytes)):
+        # raw
+        encoded_payload = payload
+    elif dill:
+        encoded_payload = dill_encode(payload)
+    else:
+        encoded_payload = json.dumps(payload)
 
     # Insert the job
     result = db.executesql(
@@ -62,7 +76,7 @@ def queue_job(
         placeholders={
             "priority": priority,
             "entrypoint": entrypoint,
-            "payload": payload if isinstance(payload, str) else json.dumps(payload),
+            "payload": encoded_payload,
             "unique_key": str(unique_key),
             "execute_after": execute_after,
         },
@@ -124,4 +138,13 @@ def safe_json(data: bytes | str | None) -> t.Any | None:
     try:
         return json.loads(data)
     except (TypeError, ValueError, json.decoder.JSONDecodeError):
+        return None
+
+def safe_dill(data: bytes | str | None) -> t.Any | None:
+    if not isinstance(data, bytes):
+        return None
+
+    try:
+        return dill_decode(data)
+    except UnpicklingError:
         return None

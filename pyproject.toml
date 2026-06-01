@@ -14,6 +14,7 @@ dynamic = ["version"]
 dependencies = [
     "asyncpg",
     "anyio",
+    "dill",
     "edwh-uuid7",
     "pgqueuer < 0.25",
     "python-dotenv",
@@ -34,6 +35,7 @@ dev = [
     "edwh",
     "pytest",
     "pytest-cov",
+    "pytest-anyio",
     # from migrate:
     "edwh-migrate",
     "pydal",

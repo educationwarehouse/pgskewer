@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 
 from edwh_migrate import activate_migrations
 
@@ -23,6 +24,17 @@ async def main():
         await asyncio.sleep(1)
         print("failing")
         assert False
+
+
+    @pgq.entrypoint("dill")
+    async def dill_entrypoint(job: Job):
+        data = parse_payload(job.payload)
+
+        assert isinstance(data, dict), "dat should be a dict"
+
+        assert data["key"] is datetime.UTC, "dat should have key=<UTC object>"
+
+        return True
 
     @pgq.entrypoint("slow_cancelable")
     async def slow_cancelable(job: Job):
@@ -66,6 +78,21 @@ async def main():
             crashable_entrypoint,
         ],
     )
+
+    @pgq.entrypoint("download_url_audio")
+    async def download_url_audio(job: Job):
+        payload = parse_payload(job.payload)
+        return {"source_url": payload["initial"]["url"], "audio_file": "/tmp/mock.wav"}
+
+    @pgq.entrypoint("pull_apart_song_step")
+    async def pull_apart_song_step(job: Job):
+        payload = parse_payload(job.payload)
+        assert "initial" in payload
+        assert "audio_file" in payload["initial"] or "audio_file" in str(payload["tasks"])
+        return True
+
+    pgq.entrypoint_pipeline("pull_apart_song", pull_apart_song_step)
+    pgq.entrypoint_pipeline("download_and_pull_apart_song", download_url_audio, "pull_apart_song")
 
     @pgq.entrypoint("access_pipeline")
     async def access_pipeline(job: Job):
