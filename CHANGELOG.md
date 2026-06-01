@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.3.1 (2026-06-01)
+
+### Fix
+
+* Make type of parse_payload more flexible ([`15119af`](https://github.com/educationwarehouse/pgskewer/commit/15119af1da8f4e92be379c3aaca44243281ea83c))
+
 ## v0.3.0 (2026-05-28)
 
 ### Feature
