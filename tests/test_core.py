@@ -154,13 +154,15 @@ def test_nonexistent_consumer(db):
     job = enqueue(db, "fake", {})
     assert_job_times_out(db, job.id, timeout_seconds=3)
 
+
 def test_dill_consumer(db):
     with pytest.raises(TypeError):
-        fails = enqueue(db, "dill", {"key": datetime.UTC})
+        _fails = enqueue(db, "dill", {"key": datetime.UTC})
 
     job = enqueue(db, "dill", {"key": datetime.UTC}, dill=True)
 
     assert_job_succeeds(db, job.id, timeout_seconds=3)
+
 
 def test_basic_pipeline(db):
     payload = {"something": "unused"}
@@ -179,7 +181,7 @@ def test_basic_pipeline(db):
 
 def pipeline_job_ids(db: DAL, pipeline_id: int):
     log_data = db.executesql(
-        f"SELECT traceback FROM pgqueuer_log WHERE job_id = %(job_id)s AND status = 'spawned'",
+        "SELECT traceback FROM pgqueuer_log WHERE job_id = %(job_id)s AND status = 'spawned'",
         placeholders=dict(job_id=pipeline_id),
         colnames=["job_ids"],
     )
@@ -204,7 +206,7 @@ def test_breaking_pipeline(db):
     def subjob_query(entrypoint: str | None):
         placeholders = {}
         if entrypoint:
-            and_entrypoint = f"AND entrypoint = %(entrypoint)s"
+            and_entrypoint = "AND entrypoint = %(entrypoint)s"
             placeholders["entrypoint"] = entrypoint
         else:
             and_entrypoint = ""

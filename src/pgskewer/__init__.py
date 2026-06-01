@@ -25,7 +25,7 @@ from pgqueuer.completion import CompletionWatcher
 from pgqueuer.db import AsyncpgDriver
 from pgqueuer.models import JOB_STATUS, Job
 
-from .helpers import safe_json, safe_dill
+from .helpers import safe_dill, safe_json
 
 type AsyncTask = t.Callable[[Job], t.Awaitable[t.Any]]
 # type AsyncTask = executors.AsyncEntrypoint
@@ -885,14 +885,36 @@ async def unblock[**P, R](sync_fn: t.Callable[P, R], *args: P.args, logs: bool =
             except asyncio.CancelledError:
                 pass
 
-@t.overload
-def parse_payload[T = PipelinePayload](data: bytes | str | None, strict: t.Literal[False] = False) -> T | None: ...
 
 @t.overload
-def parse_payload[T = PipelinePayload](data: bytes | str | None, strict: t.Literal[True]) -> T: ...
+def parse_payload[T](
+    data: bytes | str | None,
+    strict: t.Literal[False],
+    as_type: type[T],
+) -> T | None: ...
 
 
-def parse_payload[T = PipelinePayload](data: bytes | str | None, strict: bool = False) -> T | None:
+@t.overload
+def parse_payload[T](
+    data: bytes | str | None,
+    strict: t.Literal[True],
+    as_type: type[T],
+) -> T: ...
+
+
+@t.overload
+def parse_payload(data: bytes | str | None, strict: t.Literal[False] = False) -> PipelinePayload | None: ...
+
+
+@t.overload
+def parse_payload(data: bytes | str | None, strict: t.Literal[True]) -> PipelinePayload: ...
+
+
+def parse_payload[T](
+    data: bytes | str | None,
+    strict: bool = False,
+    as_type: type[T] | None = None,
+) -> T | None:
     """
     Parse job payload data into a typed payload structure.
 
@@ -904,9 +926,10 @@ def parse_payload[T = PipelinePayload](data: bytes | str | None, strict: bool = 
     Args:
         data: The payload data to parse (bytes, string, or None).
         strict: raise exception if data is None
+        as_type: Static typing hint for callers that expect a specific payload type.
 
     Returns:
-        The parsed payload as `T`, or None if parsing fails.
+        The parsed payload, or None if parsing fails.
 
     Example:
         >>> payload_data = '{"initial": {"id": 1}, "tasks": {}}'
@@ -917,7 +940,9 @@ def parse_payload[T = PipelinePayload](data: bytes | str | None, strict: bool = 
     parsed = safe_dill(data) or safe_json(data)
 
     if parsed is None and strict:
-        raise ValueError(f"parsed_payload encountered None value with strict=True")
+        raise ValueError("parsed_payload encountered None value with strict=True")
 
-    return t.cast(T | None, parsed)
+    # `as_type` is intentionally runtime-noop and exists to help static checkers.
+    _ = as_type
 
+    return parsed

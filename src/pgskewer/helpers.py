@@ -5,11 +5,10 @@ import typing as t
 import uuid
 from pickle import UnpicklingError
 
-from edwh_uuid7 import uuid7
-from pydal import DAL
-
 from dill import dumps as dill_encode
 from dill import loads as dill_decode
+from edwh_uuid7 import uuid7
+from pydal import DAL
 
 
 def utcnow():
@@ -62,7 +61,7 @@ def queue_job(
 
     # Insert the job
     result = db.executesql(
-        f"""
+        """
         INSERT INTO pgqueuer
             (priority, entrypoint, payload, execute_after, dedupe_key, status)
         VALUES (%(priority)s,
@@ -139,6 +138,7 @@ def safe_json(data: bytes | str | None) -> t.Any | None:
         return json.loads(data)
     except (TypeError, ValueError, json.decoder.JSONDecodeError):
         return None
+
 
 def safe_dill(data: bytes | str | None) -> t.Any | None:
     if not isinstance(data, bytes):

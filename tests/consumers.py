@@ -25,7 +25,6 @@ async def main():
         print("failing")
         assert False
 
-
     @pgq.entrypoint("dill")
     async def dill_entrypoint(job: Job):
         data = parse_payload(job.payload)
