@@ -847,19 +847,20 @@ async def unblock[**P, R](sync_fn: t.Callable[P, R], *args: P.args, logs: bool =
                 pass
 
 
-def parse_payload(data: bytes | str | None) -> PipelinePayload:
+def parse_payload[T = PipelinePayload](data: bytes | str | None) -> T | None:
     """
-    Parse job payload data into a PipelinePayload structure.
+    Parse job payload data into a typed payload structure.
 
     This function is a convenience wrapper around safe_json() specifically
-    for parsing pipeline payload data. It returns the parsed data as a
-    PipelinePayload type.
+    for parsing pipeline payload data. By default it returns
+    `PipelinePayload | None`, but callers can override this with a
+    custom type parameter.
 
     Args:
         data: The payload data to parse (bytes, string, or None).
 
     Returns:
-        The parsed payload as a PipelinePayload, or None if parsing fails.
+        The parsed payload as `T`, or None if parsing fails.
 
     Example:
         >>> payload_data = '{"initial": {"id": 1}, "tasks": {}}'
@@ -867,4 +868,4 @@ def parse_payload(data: bytes | str | None) -> PipelinePayload:
         >>> print(payload["initial"])  # {"id": 1}
     """
 
-    return safe_json(data)
+    return t.cast(T | None, safe_json(data))
