@@ -144,7 +144,7 @@ async def queue_job_async(
     else:
         encoded_payload = json.dumps(payload)
 
-    with db.session() as session:
+    async with db.session() as session:
         # Insert the job
         result = await db.executesql_async(
             """
