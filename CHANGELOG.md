@@ -2,6 +2,11 @@
 
 <!--next-version-placeholder-->
 
+## v0.4.1 (2026-08-20)
+
+### Fix
+* include `queue_job_async` variant
+
 ## v0.4.0 (2026-08-20)
 
 ### Fix

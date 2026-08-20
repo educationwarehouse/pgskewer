@@ -19,7 +19,7 @@ dependencies = [
     "python-dotenv",
     "uvloop",
 ]
-version = "0.4.0"
+version = "0.4.1"
 
 [project.optional-dependencies]
 
