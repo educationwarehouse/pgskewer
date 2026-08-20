@@ -2,6 +2,11 @@
 
 <!--next-version-placeholder-->
 
+## v0.4.2 (2026-08-20)
+
+### Fix
+* use `async with` for typedal `async session`
+
 ## v0.4.1 (2026-08-20)
 
 ### Fix
