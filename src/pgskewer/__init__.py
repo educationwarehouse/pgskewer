@@ -25,7 +25,7 @@ from pgqueuer.completion import CompletionWatcher
 from pgqueuer.db import AsyncpgDriver
 from pgqueuer.models import JOB_STATUS, Job
 
-from .helpers import safe_json, safe_dill
+from .helpers import safe_dill, safe_json
 
 type AsyncTask = t.Callable[[Job], t.Awaitable[t.Any]]
 # type AsyncTask = executors.AsyncEntrypoint
@@ -514,7 +514,7 @@ class ImprovedQueuer(PgQueuer):
                             )
 
         async def callback(job: Job) -> PipelinePayload:
-            raw_payload = safe_json(job.payload)
+            raw_payload = parse_payload(job.payload)
 
             initial, tasks = _extract_initial_payload(raw_payload)
 
@@ -676,6 +676,8 @@ class ImprovedQueuer(PgQueuer):
             >>> # Or use a custom environment variable
             >>> pgq = await ImprovedQueuer.from_env("DATABASE_URL")
         """
+
+        # todo: 'verbose' option that logs start/end (ok/err) for all jobs it does; pipeline or regular
 
         connection = await asyncpg.connect(
             os.getenv(key),
