@@ -8,7 +8,11 @@ from pickle import UnpicklingError
 from dill import dumps as dill_encode
 from dill import loads as dill_decode
 from edwh_uuid7 import uuid7
-from pydal import DAL
+
+if t.TYPE_CHECKING:
+    from typedal import TypeDAL as DAL
+else:
+    from pydal import DAL
 
 
 def utcnow():
@@ -101,6 +105,89 @@ def queue_job(
     )
 
     db.commit()
+    return EnqueuedJob(job_id, unique_key, db)
+
+
+async def queue_job_async(
+    db: DAL,
+    entrypoint: str,
+    payload: str | dict,
+    priority: int = 10,
+    execute_after: t.Optional[dt.datetime] = None,
+    unique_key: str | uuid.UUID | None = None,
+    dill: bool = False,
+) -> EnqueuedJob:
+    """
+    Queue a job in the pgqueuer table and log it in pgqueuer_log.
+
+    Parameters:
+        db: A database connection object with an `executesql` method.
+        entrypoint (str): The job entrypoint to execute.
+        payload (dict): Payload for the job.
+        priority (int, optional): Job priority (default is 10).
+        execute_after (datetime, optional): When to execute the job. Defaults to datetime.now().
+        unique_key: since job ids only live temporarily, these keys can be used to uniquely identify a run.
+        dill: use binary serialization instead of json?
+
+    Returns:
+        int: The ID of the queued job.
+    """
+    unique_key = unique_key or uuid7()
+
+    execute_after = execute_after or utcnow()
+
+    if isinstance(payload, (str, bytes)):
+        # raw
+        encoded_payload = payload
+    elif dill:
+        encoded_payload = dill_encode(payload)
+    else:
+        encoded_payload = json.dumps(payload)
+
+    with db.session() as session:
+        # Insert the job
+        result = await db.executesql_async(
+            """
+            INSERT INTO pgqueuer
+                (priority, entrypoint, payload, execute_after, dedupe_key, status)
+            VALUES (%(priority)s,
+                    %(entrypoint)s,
+                    %(payload)s,
+                    %(execute_after)s,
+                    %(unique_key)s,
+                    'queued')
+            RETURNING id;
+        """,
+            placeholders={
+                "priority": priority,
+                "entrypoint": entrypoint,
+                "payload": encoded_payload,
+                "unique_key": str(unique_key),
+                "execute_after": execute_after,
+            },
+        )
+
+        job_id = result[0][0]
+
+        # Log the job
+        await db.executesql_async(
+            """
+            INSERT INTO pgqueuer_log
+                (job_id, status, entrypoint, priority)
+            VALUES (%(job_id)s,
+                    'queued',
+                    %(entrypoint)s,
+                    %(priority)s);
+        """,
+            placeholders={
+                "job_id": job_id,
+                "entrypoint": entrypoint,
+                "priority": priority,
+            },
+        )
+
+        session.commit()
+
     return EnqueuedJob(job_id, unique_key, db)
 
 
