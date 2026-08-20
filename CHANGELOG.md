@@ -2,6 +2,11 @@
 
 <!--next-version-placeholder-->
 
+## v0.4.0 (2026-08-20)
+
+### Fix
+* re-use `parse_payload` when running in a pipeline
+
 ## v0.3.2 (2026-06-01)
 
 ### Fix
