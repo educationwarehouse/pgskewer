@@ -157,7 +157,7 @@ def test_nonexistent_consumer(db):
 
 def test_dill_consumer(db):
     with pytest.raises(TypeError):
-        enqueue(db, "dill", {"key": datetime.UTC})
+        _fails = enqueue(db, "dill", {"key": datetime.UTC})
 
     job = enqueue(db, "dill", {"key": datetime.UTC}, dill=True)
 

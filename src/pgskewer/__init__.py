@@ -888,19 +888,50 @@ async def unblock[**P, R](sync_fn: t.Callable[P, R], *args: P.args, logs: bool =
                 pass
 
 
-def parse_payload(data: bytes | str | None) -> PipelinePayload:
+@t.overload
+def parse_payload[T](
+    data: bytes | str | None,
+    strict: t.Literal[False],
+    as_type: type[T],
+) -> T | None: ...
+
+
+@t.overload
+def parse_payload[T](
+    data: bytes | str | None,
+    strict: t.Literal[True],
+    as_type: type[T],
+) -> T: ...
+
+
+@t.overload
+def parse_payload(data: bytes | str | None, strict: t.Literal[False] = False) -> PipelinePayload | None: ...
+
+
+@t.overload
+def parse_payload(data: bytes | str | None, strict: t.Literal[True]) -> PipelinePayload: ...
+
+
+def parse_payload[T](
+    data: bytes | str | None,
+    strict: bool = False,
+    as_type: type[T] | None = None,
+) -> T | None:
     """
-    Parse job payload data into a PipelinePayload structure.
+    Parse job payload data into a typed payload structure.
 
     This function is a convenience wrapper around safe_json() specifically
-    for parsing pipeline payload data. It returns the parsed data as a
-    PipelinePayload type.
+    for parsing pipeline payload data. By default it returns
+    `PipelinePayload | None`, but callers can override this with a
+    custom type parameter.
 
     Args:
         data: The payload data to parse (bytes, string, or None).
+        strict: raise exception if data is None
+        as_type: Static typing hint for callers that expect a specific payload type.
 
     Returns:
-        The parsed payload as a PipelinePayload, or None if parsing fails.
+        The parsed payload, or None if parsing fails.
 
     Example:
         >>> payload_data = '{"initial": {"id": 1}, "tasks": {}}'
@@ -908,4 +939,12 @@ def parse_payload(data: bytes | str | None) -> PipelinePayload:
         >>> print(payload["initial"])  # {"id": 1}
     """
 
-    return safe_dill(data) or safe_json(data)
+    parsed = safe_dill(data) or safe_json(data)
+
+    if parsed is None and strict:
+        raise ValueError("parsed_payload encountered None value with strict=True")
+
+    # `as_type` is intentionally runtime-noop and exists to help static checkers.
+    _ = as_type
+
+    return parsed
