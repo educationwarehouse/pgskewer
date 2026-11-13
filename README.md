@@ -87,6 +87,32 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+## Running a Worker
+
+`pgq run module:factory` (pgqueuer >= 1.0) requires the factory to be an **async context manager**.
+`ImprovedQueuer.connect()` opens (and afterwards closes) a connection from `POSTGRES_URI`:
+
+```python
+import contextlib
+from pgskewer import ImprovedQueuer, Job
+
+@contextlib.asynccontextmanager
+async def main():
+    async with ImprovedQueuer.connect() as pgq:
+        @pgq.entrypoint("my_task")
+        async def my_task(job: Job):
+            ...
+
+        yield pgq
+```
+
+```bash
+pgq run myapp.worker:main
+```
+
+Jobs whose heartbeat is older than `--heartbeat-timeout` (default 30s) are picked up again by another worker,
+so never block the event loop for long: wrap blocking work in `await unblock(...)`.
+
 ## Advanced Usage
 
 ### Creating Pipelines with Parallel Tasks

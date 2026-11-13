@@ -15,7 +15,10 @@ dependencies = [
     "anyio",
     "dill",
     "edwh-uuid7",
-    "pgqueuer < 0.25",
+    "pgqueuer[asyncpg] >= 1.6, < 2",
+    # typer 0.29 breaks `pgq run` in every pgqueuer version (incl. 2.0.0):
+    # `--log-level` reaches `setup_fancy_logger` as a str -> AttributeError: 'str' object has no attribute 'name'
+    "typer < 0.29",
     "python-dotenv",
     "uvloop",
 ]

@@ -6,7 +6,7 @@ result storage, cancellation support, crash protection, and pipeline execution.
 """
 
 import asyncio
-import datetime as dt
+import contextlib
 import functools
 import inspect
 import json
@@ -21,9 +21,10 @@ import asyncpg
 import dill
 from edwh_uuid7 import uuid7
 from pgqueuer import PgQueuer, executors
-from pgqueuer.completion import CompletionWatcher
+from pgqueuer.core.completion import CompletionWatcher
 from pgqueuer.db import AsyncpgDriver
 from pgqueuer.models import JOB_STATUS, Job
+from pgqueuer.types import OnFailure
 
 from .helpers import safe_dill, safe_json
 
@@ -171,10 +172,8 @@ class ImprovedQueuer(PgQueuer):
         self,
         name: str,
         *,
-        requests_per_second: float = float("inf"),
         concurrency_limit: int = 0,
-        retry_timer: dt.timedelta = dt.timedelta(seconds=0),
-        serialized_dispatch: bool = False,
+        on_failure: OnFailure = "delete",
         executor_factory: t.Callable[
             [executors.EntrypointExecutorParameters],
             executors.AbstractEntrypointExecutor,
@@ -195,11 +194,12 @@ class ImprovedQueuer(PgQueuer):
 
         Args:
             name: The name of the entrypoint for job identification.
-            requests_per_second: Maximum requests per second for rate limiting.
-            concurrency_limit: Maximum concurrent executions (0 = unlimited).
-            retry_timer: Time to wait before retrying failed jobs.
-            serialized_dispatch: Whether to serialize job dispatch.
-            executor_factory: Custom executor factory function.
+            concurrency_limit: Maximum concurrent executions across all workers (0 = unlimited).
+                Use 1 for what used to be `serialized_dispatch=True`.
+            on_failure: What pgqueuer does with a job that raised: "delete" it (default),
+                or "hold" it with status 'failed' so it can be inspected and requeued (`pgq failed` / `pgq requeue`).
+            executor_factory: Custom executor factory function,
+                e.g. `pgqueuer.DatabaseRetryEntrypointExecutor` for retries with backoff.
             cancelable: Whether to enable job cancellation support.
             store_results: Whether to store job results in the database.
             crashable: Whether to prevent task failures from halting pipeline execution.
@@ -235,10 +235,11 @@ class ImprovedQueuer(PgQueuer):
             # Apply the original entrypoint decorator
             return self.qm.entrypoint(
                 name=name,
-                requests_per_second=requests_per_second,
                 concurrency_limit=concurrency_limit,
-                retry_timer=retry_timer,
-                serialized_dispatch=serialized_dispatch,
+                # our wrappers only ever call `fn(job)`; don't let pgqueuer sniff a `Context` param
+                # through `functools.wraps` and pass one along:
+                accepts_context=False,
+                on_failure=on_failure,
                 executor_factory=executor_factory,
             )(func)
 
@@ -544,7 +545,7 @@ class ImprovedQueuer(PgQueuer):
 
                 await self.log(job, "spawned", job_ids)
 
-                async with CompletionWatcher(driver) as w:
+                async with CompletionWatcher(driver, queries=queue) as w:
                     jobs = [w.wait_for(j) for j in job_ids]
                     named_jobs = [named_future(name, job_id, fut) for name, job_id, fut in zip(substeps, job_ids, jobs)]
 
@@ -684,6 +685,30 @@ class ImprovedQueuer(PgQueuer):
         )
         driver = AsyncpgDriver(connection)
         return cls(driver)
+
+    @classmethod
+    @contextlib.asynccontextmanager
+    async def connect(cls, key: str = "POSTGRES_URI") -> t.AsyncIterator[t.Self]:
+        """
+        Like `from_env`, but as an async context manager that closes the connection afterward.
+
+        Since pgqueuer 1.0, `pgq run module:factory` requires the factory to return an
+        async context manager, so this is the easiest way to write one:
+
+        Example:
+            >>> @contextlib.asynccontextmanager
+            ... async def main():
+            ...     async with ImprovedQueuer.connect() as pgq:
+            ...         @pgq.entrypoint("my_task")
+            ...         async def my_task(job: Job): ...
+            ...
+            ...         yield pgq
+        """
+        connection = await asyncpg.connect(os.getenv(key))
+        try:
+            yield cls(AsyncpgDriver(connection))
+        finally:
+            await connection.close()
 
 
 def _serialize_callable_and_args(sync_fn: t.Callable[..., t.Any], args: tuple[t.Any, ...]) -> tuple[bytes, bytes]:
