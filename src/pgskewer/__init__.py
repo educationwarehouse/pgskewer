@@ -23,13 +23,14 @@ from edwh_uuid7 import uuid7
 from pgqueuer import PgQueuer, executors
 from pgqueuer.core.completion import CompletionWatcher
 from pgqueuer.db import AsyncpgDriver
-from pgqueuer.models import JOB_STATUS, Job
+from pgqueuer.models import JOB_STATUS, Context, Job
 from pgqueuer.types import OnFailure
 
 from .helpers import safe_dill, safe_json
 
 type AsyncTask = t.Callable[[Job], t.Awaitable[t.Any]]
-# type AsyncTask = executors.AsyncEntrypoint
+# any job function: `(job)` or `(job, context)`; the pgskewer wrappers forward the optional context.
+type AnyEntrypoint = t.Callable[..., t.Awaitable[t.Any]]
 
 
 # Wrap each job with the substep name and job id, using a helper coroutine
@@ -63,7 +64,7 @@ async def named_future(
     try:
         result = await fut
         return substep, job_id, result
-    except Exception as e:  # pragma: no cover
+    except Exception as e:  # noqa: BLE001  # pragma: no cover
         return substep, job_id, e  # Still capture which substep failed
 
 
@@ -136,7 +137,7 @@ def _extract_initial_payload(payload: t.Any) -> tuple[t.Any, dict[str, TaskResul
     return payload, {}
 
 
-def is_async(fn: t.Callable[..., t.Awaitable[...]]) -> bool:
+def is_async(fn: t.Callable[..., t.Any]) -> bool:
     """
     Determine whether a given callable is an asynchronous function.
 
@@ -173,6 +174,7 @@ class ImprovedQueuer(PgQueuer):
         name: str,
         *,
         concurrency_limit: int = 0,
+        accepts_context: bool | None = None,
         on_failure: OnFailure = "delete",
         executor_factory: t.Callable[
             [executors.EntrypointExecutorParameters],
@@ -183,7 +185,7 @@ class ImprovedQueuer(PgQueuer):
         cancelable: bool = True,
         store_results: bool = True,
         crashable: bool = False,
-    ) -> t.Callable[[AsyncTask], AsyncTask]:
+    ) -> t.Callable[[executors.EntrypointTypeVar], executors.EntrypointTypeVar]:
         """
         Enhanced entrypoint decorator with additional job management features.
 
@@ -196,6 +198,8 @@ class ImprovedQueuer(PgQueuer):
             name: The name of the entrypoint for job identification.
             concurrency_limit: Maximum concurrent executions across all workers (0 = unlimited).
                 Use 1 for what used to be `serialized_dispatch=True`.
+            accepts_context: Whether the function takes a second `pgqueuer.models.Context` argument.
+                None (default) detects this from a parameter annotated with `Context`.
             on_failure: What pgqueuer does with a job that raised: "delete" it (default),
                 or "hold" it with status 'failed' so it can be inspected and requeued (`pgq failed` / `pgq requeue`).
             executor_factory: Custom executor factory function,
@@ -214,38 +218,41 @@ class ImprovedQueuer(PgQueuer):
             ...     return {"processed": job.payload}
         """
 
-        def decorator(func: AsyncTask) -> AsyncTask:
+        def decorator(func: executors.EntrypointTypeVar) -> executors.EntrypointTypeVar:
             if not is_async(func):  # pragma: no cover
+                culprit = getattr(func, "__name__", repr(func))
                 raise RuntimeError(
-                    f"Please use only `async` functions (with `unblock`) for pgskewer entrypoints! (culprit: {func.__name__})"
+                    f"Please use only `async` functions (with `unblock`) for pgskewer entrypoints! (culprit: {culprit})"
                 )
 
+            # resolve this on the original function; the wrappers below take `(job, *context)`:
+            with_context = executors.wants_context(func, Context) if accepts_context is None else accepts_context
+
+            wrapped: AnyEntrypoint = func
             if cancelable:
                 # Apply cancelable wrapper if requested
-                func = self.cancelable(func)
+                wrapped = self.cancelable(wrapped)
 
             if store_results:
                 # Apply results wrapper if requested
-                func = self.store_results(func)
+                wrapped = self.store_results(wrapped)
 
             if crashable:
                 # Apply exception wrapper if requested
-                func = self.crashable(func)
+                wrapped = self.crashable(wrapped)
 
             # Apply the original entrypoint decorator
             return self.qm.entrypoint(
                 name=name,
                 concurrency_limit=concurrency_limit,
-                # our wrappers only ever call `fn(job)`; don't let pgqueuer sniff a `Context` param
-                # through `functools.wraps` and pass one along:
-                accepts_context=False,
+                accepts_context=with_context,
                 on_failure=on_failure,
                 executor_factory=executor_factory,
-            )(func)
+            )(t.cast(executors.EntrypointTypeVar, wrapped))
 
         return decorator
 
-    def store_results(self, async_fn: executors.EntrypointTypeVar) -> executors.EntrypointTypeVar:
+    def store_results(self, async_fn: AnyEntrypoint) -> AnyEntrypoint:
         """
         Decorator that stores job execution results in the pgqueuer_result table.
 
@@ -272,7 +279,7 @@ class ImprovedQueuer(PgQueuer):
         """
 
         @functools.wraps(async_fn)
-        async def wrapper(job: Job):
+        async def wrapper(job: Job, *context: Context) -> t.Any:
             exc = None
 
             job_row = (
@@ -288,8 +295,8 @@ class ImprovedQueuer(PgQueuer):
             # ^ before running the function, otherwise the row may already be removed
 
             try:
-                result = await async_fn(job)
-            except Exception as e:
+                result = await async_fn(job, *context)
+            except Exception as e:  # noqa: BLE001 - stored as result, then re-raised
                 exc = e  # cursed but otherwise the scope is f'ed up
                 result = {
                     "exception": [type(exc).__name__, exc],
@@ -317,7 +324,7 @@ class ImprovedQueuer(PgQueuer):
 
         return wrapper
 
-    def cancelable(self, async_fn: executors.EntrypointTypeVar) -> executors.EntrypointTypeVar:
+    def cancelable(self, async_fn: AnyEntrypoint) -> AnyEntrypoint:
         """
         Wraps an asynchronous function to provide cancelation capability for a job.
 
@@ -344,15 +351,15 @@ class ImprovedQueuer(PgQueuer):
         """
 
         @functools.wraps(async_fn)
-        async def wrapper(job: Job):
+        async def wrapper(job: Job, *context: Context) -> t.Any:
             with self.qm.get_context(job.id).cancellation:
-                return await async_fn(job)
+                return await async_fn(job, *context)
 
             raise ChildProcessError("Job cancelled!")
 
         return wrapper
 
-    def crashable(self, async_fn: executors.EntrypointTypeVar) -> executors.EntrypointTypeVar:
+    def crashable(self, async_fn: AnyEntrypoint) -> AnyEntrypoint:
         """
         Decorator that prevents job functions from crashing the worker process.
 
@@ -382,10 +389,10 @@ class ImprovedQueuer(PgQueuer):
         """
 
         @functools.wraps(async_fn)
-        async def wrapper(job: Job):
+        async def wrapper(job: Job, *context: Context) -> t.Any:
             try:
-                return await async_fn(job)
-            except Exception as e:
+                return await async_fn(job, *context)
+            except Exception as e:  # noqa: BLE001 - that's the point of `crashable`
                 print(f"Warn: crashable job `{job.entrypoint}` failed", file=sys.stderr)
                 traceback.print_exception(e)
                 return None
@@ -474,25 +481,25 @@ class ImprovedQueuer(PgQueuer):
         #  - configuring retries (which pgqueuer should already support?)
         #  - improved pytests/coverage
 
-        key_to_fn = t.cast(
-            dict[str, AsyncTask],
-            {k: v.parameters.func for k, v in self.qm.entrypoint_registry.items()},
-        )
+        key_to_fn: dict[str, object] = {k: v.parameters.func for k, v in self.qm.entrypoint_registry.items()}
         fn_to_key = {v: k for k, v in key_to_fn.items()}
 
         # 1. Map functions into entrypoint names
-        def map_step(step: str | AsyncTask):
+        def map_name(step: object) -> str:
             if isinstance(step, str):
                 return step
             elif callable(step):
                 if step in fn_to_key:
                     return fn_to_key[step]
-                raise ValueError(f"Function {step.__name__} is not registered as an entrypoint")
-            elif isinstance(step, t.Sequence):
-                # tuple, list; NOT dict, set
-                return [map_step(s) for s in step]
+                raise ValueError(f"Function {getattr(step, '__name__', step)} is not registered as an entrypoint")
             else:
                 raise TypeError(f"Step must be a string, function, or Sequence, not {type(step)}")
+
+        def map_step(step: object) -> str | list[str]:
+            if isinstance(step, t.Sequence) and not isinstance(step, str):
+                # tuple, list (a parallel group); NOT dict, set
+                return [map_name(s) for s in step]
+            return map_name(step)
 
         # 2. Ensure pipeline() can be called with one list as input or multiple inputs
         if len(input_steps) == 1 and isinstance(input_steps[0], list):
@@ -591,7 +598,7 @@ class ImprovedQueuer(PgQueuer):
 
         return self.entrypoint(name)(self.pipeline(*input_steps, check=check))
 
-    async def result(self, job_id: int, timeout: t.Optional[int] = None) -> TaskResult | None:
+    async def result(self, job_id: int, timeout: int | None = None) -> TaskResult | None:
         """
         Retrieve the stored result of a job by its ID.
 
@@ -633,9 +640,9 @@ class ImprovedQueuer(PgQueuer):
             if rows:
                 row = rows[0]
                 result: TaskResult = {
-                    "status": row["status"],
-                    "ok": row["ok"],
-                    "result": safe_json(row["result"]),
+                    "status": t.cast(JOB_STATUS, row["status"]),
+                    "ok": bool(row["ok"]),
+                    "result": safe_json(t.cast(str | None, row["result"])),
                 }
                 return result
 
@@ -688,7 +695,7 @@ class ImprovedQueuer(PgQueuer):
 
     @classmethod
     @contextlib.asynccontextmanager
-    async def connect(cls, key: str = "POSTGRES_URI") -> t.AsyncIterator[t.Self]:
+    async def connect(cls, key: str = "POSTGRES_URI") -> t.AsyncGenerator[t.Self]:
         """
         Like `from_env`, but as an async context manager that closes the connection afterward.
 
@@ -723,8 +730,7 @@ def _attach_worker_traceback(exc: BaseException, worker_traceback: str | None) -
     try:
         exc.add_note(note)
         return exc
-    except Exception:
-        # Extremely defensive fallback for exception types without add_note.
+    except Exception:  # noqa: BLE001 - extremely defensive fallback for exception types without add_note
         return RuntimeError(f"{exc}\n\n{note}")
 
 
@@ -793,7 +799,14 @@ async def _run_subprocess_callable(
         raise RuntimeError(f"unblock() worker exited with status {return_code} without error payload")
 
 
-async def stream_file(file_path: Path, stream: t.Literal["out", "err"], stop_event: asyncio.Event = None):
+def _read_from(file_path: Path, pos: int) -> tuple[str, int]:
+    """Read everything after `pos`; returns the new content and the new position."""
+    with file_path.open() as f:
+        f.seek(pos)
+        return f.read(), f.tell()
+
+
+async def stream_file(file_path: Path, stream: t.Literal["out", "err"], stop_event: asyncio.Event | None = None):
     """
     Stream a file's content in real-time to stdout or stderr.
 
@@ -819,15 +832,11 @@ async def stream_file(file_path: Path, stream: t.Literal["out", "err"], stop_eve
     while True:
         wrote_content = False
         if file_path.exists():
-            with open(file_path, "r") as f:
-                f.seek(pos)
-                new_content = f.read()
-                if new_content:
-                    output_stream.write(new_content)
-                    output_stream.flush()  # Force flush for real-time output
-                    wrote_content = True
-
-                pos = f.tell()
+            new_content, pos = await asyncio.to_thread(_read_from, file_path, pos)
+            if new_content:
+                output_stream.write(new_content)
+                output_stream.flush()  # Force flush for real-time output
+                wrote_content = True
 
         if stop_event and stop_event.is_set() and not wrote_content:
             break
@@ -835,7 +844,7 @@ async def stream_file(file_path: Path, stream: t.Literal["out", "err"], stop_eve
         await asyncio.sleep(0.1)
 
 
-async def unblock[**P, R](sync_fn: t.Callable[P, R], *args: P.args, logs: bool = True) -> R:
+async def unblock[*Ts, R](sync_fn: t.Callable[[*Ts], R], *args: *Ts, logs: bool = True) -> R:
     """
     Convert a blocking synchronous function to async with real-time log streaming.
 

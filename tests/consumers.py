@@ -30,7 +30,7 @@ async def main():
 
         @pgq.entrypoint("dill")
         async def dill_entrypoint(job: Job):
-            data = parse_payload(job.payload)
+            data = parse_payload(job.payload, strict=True, as_type=dict)
 
             assert isinstance(data, dict), "dat should be a dict"
 
@@ -83,12 +83,12 @@ async def main():
 
         @pgq.entrypoint("download_url_audio")
         async def download_url_audio(job: Job):
-            payload = parse_payload(job.payload)
+            payload = parse_payload(job.payload, strict=True)
             return {"source_url": payload["initial"]["url"], "audio_file": "/tmp/mock.wav"}
 
         @pgq.entrypoint("pull_apart_song_step")
         async def pull_apart_song_step(job: Job):
-            payload = parse_payload(job.payload)
+            payload = parse_payload(job.payload, strict=True)
             assert "initial" in payload
             assert "audio_file" in payload["initial"] or "audio_file" in str(payload["tasks"])
             return True
@@ -98,11 +98,10 @@ async def main():
 
         @pgq.entrypoint("access_pipeline")
         async def access_pipeline(job: Job):
-            payload = parse_payload(job.payload)
+            payload = parse_payload(job.payload, strict=True)
 
-            pipeline = payload.get("pipeline")
+            pipeline = payload["pipeline"]
 
-            assert pipeline
             assert pipeline["name"] == "meta_pipeline"
             assert pipeline["steps"][0] == "access_pipeline"
 
