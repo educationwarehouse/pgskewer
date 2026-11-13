@@ -1,9 +1,15 @@
 import datetime
 import os
 import time
+import typing as t
 
 import pytest
-from pydal import DAL
+
+if t.TYPE_CHECKING:
+    # pydal-stubs keep `DAL` as `Any` on purpose; `DALBase` is the typed (type-checking only) surface
+    from pydal.base import DALBase as DAL
+else:
+    from pydal import DAL
 
 from src.pgskewer.helpers import queue_job as enqueue
 
@@ -30,8 +36,8 @@ def docker_compose():
             db = connect_to_db()
             db.executesql("SELECT id FROM pgqueuer_result;")
             break
-        except Exception as e:
-            print(f"db still starting, waiting 1s; {type(e)} {str(e)}")
+        except Exception as e:  # noqa: BLE001 - any error means 'not ready yet'
+            print(f"db still starting, waiting 1s; {type(e)} {e!s}")
             time.sleep(1)
     else:  # pragma: no cover
         print("db down too long, stopping")
@@ -182,7 +188,7 @@ def test_basic_pipeline(db):
 def pipeline_job_ids(db: DAL, pipeline_id: int):
     log_data = db.executesql(
         "SELECT traceback FROM pgqueuer_log WHERE job_id = %(job_id)s AND status = 'spawned'",
-        placeholders=dict(job_id=pipeline_id),
+        placeholders={"job_id": pipeline_id},
         colnames=["job_ids"],
     )
 

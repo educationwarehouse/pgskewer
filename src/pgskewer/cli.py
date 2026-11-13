@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import textwrap
+import typing as t
 import warnings
 from uuid import UUID
 
@@ -11,7 +12,11 @@ from dotenv import load_dotenv
 with warnings.catch_warnings():
     # silence `invalid escape sequence` warnings in pydal:
     warnings.filterwarnings("ignore", category=SyntaxWarning)
-    from pydal import DAL
+    if t.TYPE_CHECKING:
+        # pydal-stubs keep `DAL` as `Any` on purpose; `DALBase` is the typed (type-checking only) surface
+        from pydal.base import DALBase as DAL
+    else:
+        from pydal import DAL
 
 from .helpers import queue_job
 
@@ -30,7 +35,7 @@ def setup_db():
         db.close()
 
 
-def enqueue(entrypoint: str, data: str = "{}") -> UUID:
+def enqueue(entrypoint: str, data: str = "{}") -> UUID | str:
     with setup_db() as db:
         job = queue_job(db, entrypoint, data)
 
@@ -52,7 +57,7 @@ def print_help():
     Examples:
       %(program)s enqueue my_task
       %(program)s enqueue my_task '{"key": "value"}'
-    """) % dict(program=PROGRAM_NAME)
+    """) % {"program": PROGRAM_NAME}
     print(help_text.strip())
 
 
@@ -66,7 +71,7 @@ def print_invalid_usage():
     print(f"Use '{PROGRAM_NAME} --help' to see available commands.")
 
 
-def main(args: list[str] = ()):
+def main(args: t.Sequence[str] = ()):
     args = tuple(args or sys.argv[1:])
 
     match args:

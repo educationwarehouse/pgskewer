@@ -38,6 +38,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "pytest-anyio",
+    "typedal",
     # from migrate:
     "edwh-migrate",
     "pydal",

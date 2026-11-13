@@ -10,9 +10,9 @@ from dill import loads as dill_decode
 from edwh_uuid7 import uuid7
 
 if t.TYPE_CHECKING:
-    from typedal import TypeDAL as DAL
-else:
-    from pydal import DAL
+    # `queue_job` works with any pydal DAL; `queue_job_async` needs typedal's async API.
+    from pydal.base import DALBase as DAL
+    from typedal import TypeDAL
 
 
 def utcnow():
@@ -22,17 +22,17 @@ def utcnow():
 @dc.dataclass
 class EnqueuedJob:
     id: int
-    key: uuid.UUID
+    key: uuid.UUID | str
 
-    _db: DAL = None
+    _db: "DAL | None" = None
 
 
 def queue_job(
-    db: DAL,
+    db: "DAL",
     entrypoint: str,
     payload: str | dict,
     priority: int = 10,
-    execute_after: t.Optional[dt.datetime] = None,
+    execute_after: dt.datetime | None = None,
     unique_key: str | uuid.UUID | None = None,
     dill: bool = False,
 ) -> EnqueuedJob:
@@ -109,11 +109,11 @@ def queue_job(
 
 
 async def queue_job_async(
-    db: DAL,
+    db: "TypeDAL",
     entrypoint: str,
     payload: str | dict,
     priority: int = 10,
-    execute_after: t.Optional[dt.datetime] = None,
+    execute_after: dt.datetime | None = None,
     unique_key: str | uuid.UUID | None = None,
     dill: bool = False,
 ) -> EnqueuedJob:
