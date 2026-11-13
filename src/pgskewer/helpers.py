@@ -144,7 +144,7 @@ async def queue_job_async(
     else:
         encoded_payload = json.dumps(payload)
 
-    async with db.session() as session:
+    async with db.session():
         # Insert the job
         result = await db.executesql_async(
             """
@@ -186,7 +186,7 @@ async def queue_job_async(
             },
         )
 
-        session.commit()
+        # leaving the `async with` block commits (or rolls back on exception)
 
     return EnqueuedJob(job_id, unique_key, db)
 
