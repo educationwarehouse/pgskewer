@@ -28,7 +28,7 @@ def db_blocker():
     try:
         db.executesql("select 1")
         return 1
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 0
     finally:
         db.close()
