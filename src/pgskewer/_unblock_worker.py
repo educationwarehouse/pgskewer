@@ -13,7 +13,7 @@ def _dump_exception(error_path: str, exc: BaseException) -> None:
     }
     try:
         payload = dill.dumps(payload_data)
-    except Exception:
+    except Exception:  # noqa: BLE001 - unpicklable exception: fall back to a plain one
         payload = dill.dumps(
             {
                 "exc": RuntimeError(str(exc)),
@@ -71,7 +71,7 @@ def main() -> int:
             sync_fn = dill.loads(fh.read())  # nosec
         with open(args_path, "rb") as fh:
             args = dill.loads(fh.read())  # nosec
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - forwarded to the parent process
         _dump_exception(error_path, exc)
         return 1
 
@@ -86,7 +86,7 @@ def main() -> int:
             with open(result_path, "wb") as fh:
                 fh.write(dill.dumps(result))
             return_code = 0
-        except BaseException as exc:
+        except BaseException as exc:  # noqa: BLE001 - forwarded to the parent process
             _dump_exception(error_path, exc)
             return_code = 1
 

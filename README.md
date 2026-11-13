@@ -41,25 +41,26 @@ from pgqueuer.db import AsyncpgDriver
 from pgqueuer.queries import Queries
 from pgskewer import ImprovedQueuer, parse_payload, TaskResult
 
+
 async def main():
     # Initialize the queuer with your database connection
     connection = await asyncpg.connect("postgresql://user:password@localhost/dbname")
     driver = AsyncpgDriver(connection)
     pgq = ImprovedQueuer(driver)
-    
+
     # Define some tasks as entrypoints
     @pgq.entrypoint("fetch_data")
     async def fetch_data(job):
         # Fetch some data
         return {"data": "example data"}
-    
+
     @pgq.entrypoint("process_data")
     async def process_data(job: Job):
         # Process the data from the previous step
         payload = parse_payload(job.payload)
         data = payload["tasks"]["fetch_data"]["result"]["data"]
         return {"processed": data.upper()}
-    
+
     @pgq.entrypoint("store_results")
     async def store_results(job: Job):
         # Store the processed data
@@ -67,25 +68,52 @@ async def main():
         processed = payload["tasks"]["process_data"]["result"]["processed"]
         # Store the processed data somewhere
         return {"status": "completed", "stored": processed}
-    
+
     # Create a pipeline that runs these tasks in sequence
     pgq.entrypoint_pipeline(
         "my_pipeline",
         # start steps as a mix of entrypoint names and function references:
         fetch_data,
         "process_data",
-        store_results
+        store_results,
     )
-    
+
     # Execute the pipeline (empty initial data)
-    job_id = await pgq.qm.queries.enqueue("my_pipeline", b'')
+    job_id = await pgq.qm.queries.enqueue("my_pipeline", b"")
     # when the pipeline completes, pgqueuer_result should have an entry for this job_id:
     result: TaskResult = await pgq.result(job_id, timeout=None)
-    
-    
+
+
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+## Running a Worker
+
+`pgq run module:factory` (pgqueuer >= 1.0) requires the factory to be an **async context manager**.
+`ImprovedQueuer.connect()` opens (and afterwards closes) a connection from `POSTGRES_URI`:
+
+```python
+import contextlib
+from pgskewer import ImprovedQueuer, Job
+
+
+@contextlib.asynccontextmanager
+async def main():
+    async with ImprovedQueuer.connect() as pgq:
+
+        @pgq.entrypoint("my_task")
+        async def my_task(job: Job): ...
+
+        yield pgq
+```
+
+```bash
+pgq run myapp.worker:main
+```
+
+Jobs whose heartbeat is older than `--heartbeat-timeout` (default 30s) are picked up again by another worker,
+so never block the event loop for long: wrap blocking work in `await unblock(...)`.
 
 ## Advanced Usage
 
@@ -95,11 +123,13 @@ You can define pipelines with a mix of sequential and parallel tasks:
 
 ```python
 # Define a pipeline with parallel tasks
-pipeline = pgq.pipeline([
-    "task_1",                    # Run task_1 first
-    ["task_2a", "task_2b"],      # Then run task_2a and task_2b in parallel
-    "task_3"                     # Finally run task_3 after both task_2a and task_2b complete
-])
+pipeline = pgq.pipeline(
+    [
+        "task_1",  # Run task_1 first
+        ["task_2a", "task_2b"],  # Then run task_2a and task_2b in parallel
+        "task_3",  # Finally run task_3 after both task_2a and task_2b complete
+    ]
+)
 ```
 
 ### Register a Pipeline as an Entrypoint
@@ -108,12 +138,7 @@ You can register a pipeline as an entrypoint for reuse:
 
 ```python
 # Register the pipeline as an entrypoint
-pgq.entrypoint_pipeline(
-    "data_processing_pipeline",
-    "fetch_data",
-    ["validate_data", "normalize_data"],
-    "store_data"
-)
+pgq.entrypoint_pipeline("data_processing_pipeline", "fetch_data", ["validate_data", "normalize_data"], "store_data")
 
 # Now you can enqueue this pipeline like any other task
 job_id = await pgq.enqueue("data_processing_pipeline", {"source": "api"})
@@ -126,12 +151,14 @@ pgskewer provides utilities to run blocking functions asynchronously with real-t
 ```python
 from pgskewer import unblock
 
+
 def cpu_intensive_task(data):
     # This is a blocking function
     print("Processing data...")
     result = process_data(data)
     print("Processing complete!")
     return result
+
 
 # Run the blocking function asynchronously with log streaming
 result = await unblock(cpu_intensive_task, data)
@@ -152,17 +179,17 @@ The pipeline returns a structured result with information about each task:
             "ok": true,
             "result": {
                 # Task 1's result data
-            }
+            },
         },
         "task_2a": {
             "status": "successful",
             "ok": true,
             "result": {
                 # Task 2a's result data
-            }
+            },
         },
         # ... other tasks
-    }
+    },
 }
 ```
 

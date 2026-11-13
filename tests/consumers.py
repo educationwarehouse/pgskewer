@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import datetime
 
 from edwh_migrate import activate_migrations
@@ -7,103 +8,104 @@ from pgskewer import ImprovedQueuer, Job, parse_payload
 from pgskewer.migrations import noop
 
 
+@contextlib.asynccontextmanager
 async def main():
+    # pgqueuer >= 1.0: `pgq run` factories must be async context managers
     noop()
     activate_migrations()
 
-    pgq = await ImprovedQueuer.from_env()
+    async with ImprovedQueuer.connect() as pgq:
 
-    @pgq.entrypoint("basic")
-    async def basic_entrypoint(job: Job):
-        print("basic")
-        parse_payload(job.payload)
-        return True
+        @pgq.entrypoint("basic")
+        async def basic_entrypoint(job: Job):
+            print("basic")
+            parse_payload(job.payload)
+            return True
 
-    @pgq.entrypoint("failing")
-    async def failing_entrypoint(job: Job):
-        await asyncio.sleep(1)
-        print("failing")
-        assert False
+        @pgq.entrypoint("failing")
+        async def failing_entrypoint(job: Job):
+            await asyncio.sleep(1)
+            print("failing")
+            assert False
 
-    @pgq.entrypoint("dill")
-    async def dill_entrypoint(job: Job):
-        data = parse_payload(job.payload)
+        @pgq.entrypoint("dill")
+        async def dill_entrypoint(job: Job):
+            data = parse_payload(job.payload, strict=True, as_type=dict)
 
-        assert isinstance(data, dict), "dat should be a dict"
+            assert isinstance(data, dict), "dat should be a dict"
 
-        assert data["key"] is datetime.UTC, "dat should have key=<UTC object>"
+            assert data["key"] is datetime.UTC, "dat should have key=<UTC object>"
 
-        return True
+            return True
 
-    @pgq.entrypoint("slow_cancelable")
-    async def slow_cancelable(job: Job):
-        # this is a job that may be cancelled
-        await asyncio.sleep(5)
-        return "no"
+        @pgq.entrypoint("slow_cancelable")
+        async def slow_cancelable(job: Job):
+            # this is a job that may be cancelled
+            await asyncio.sleep(5)
+            return "no"
 
-    @pgq.entrypoint("slow_non_cancelable", cancelable=False)
-    async def slow_non_cancelable(job: Job):
-        # this is a job that should not be cancelled
-        await asyncio.sleep(5)
-        return "yes"
+        @pgq.entrypoint("slow_non_cancelable", cancelable=False)
+        async def slow_non_cancelable(job: Job):
+            # this is a job that should not be cancelled
+            await asyncio.sleep(5)
+            return "yes"
 
-    @pgq.entrypoint("crashable", crashable=True)
-    async def crashable_entrypoint(job: Job):
-        print("failing but that's ok")
-        raise ValueError("This is fine")
+        @pgq.entrypoint("crashable", crashable=True)
+        async def crashable_entrypoint(job: Job):
+            print("failing but that's ok")
+            raise ValueError("This is fine")
 
-    # todo: some test with the job.payload
+        # todo: some test with the job.payload
 
-    pgq.entrypoint_pipeline("working_pipeline", basic_entrypoint, [slow_cancelable, slow_non_cancelable])
+        pgq.entrypoint_pipeline("working_pipeline", basic_entrypoint, [slow_cancelable, slow_non_cancelable])
 
-    pgq.entrypoint_pipeline(
-        "failing_pipeline",
-        [
-            [crashable_entrypoint, basic_entrypoint],
-            (
+        pgq.entrypoint_pipeline(
+            "failing_pipeline",
+            [
+                [crashable_entrypoint, basic_entrypoint],
+                (
+                    slow_cancelable,
+                    slow_non_cancelable,
+                    failing_entrypoint,
+                ),
+            ],
+        )
+
+        pgq.entrypoint_pipeline(
+            "fault_tolerant_pipeline",
+            basic_entrypoint,
+            [
                 slow_cancelable,
                 slow_non_cancelable,
-                failing_entrypoint,
-            ),
-        ],
-    )
+                crashable_entrypoint,
+            ],
+        )
 
-    pgq.entrypoint_pipeline(
-        "fault_tolerant_pipeline",
-        basic_entrypoint,
-        [
-            slow_cancelable,
-            slow_non_cancelable,
-            crashable_entrypoint,
-        ],
-    )
+        @pgq.entrypoint("download_url_audio")
+        async def download_url_audio(job: Job):
+            payload = parse_payload(job.payload, strict=True)
+            return {"source_url": payload["initial"]["url"], "audio_file": "/tmp/mock.wav"}
 
-    @pgq.entrypoint("download_url_audio")
-    async def download_url_audio(job: Job):
-        payload = parse_payload(job.payload)
-        return {"source_url": payload["initial"]["url"], "audio_file": "/tmp/mock.wav"}
+        @pgq.entrypoint("pull_apart_song_step")
+        async def pull_apart_song_step(job: Job):
+            payload = parse_payload(job.payload, strict=True)
+            assert "initial" in payload
+            assert "audio_file" in payload["initial"] or "audio_file" in str(payload["tasks"])
+            return True
 
-    @pgq.entrypoint("pull_apart_song_step")
-    async def pull_apart_song_step(job: Job):
-        payload = parse_payload(job.payload)
-        assert "initial" in payload
-        assert "audio_file" in payload["initial"] or "audio_file" in str(payload["tasks"])
-        return True
+        pgq.entrypoint_pipeline("pull_apart_song", pull_apart_song_step)
+        pgq.entrypoint_pipeline("download_and_pull_apart_song", download_url_audio, "pull_apart_song")
 
-    pgq.entrypoint_pipeline("pull_apart_song", pull_apart_song_step)
-    pgq.entrypoint_pipeline("download_and_pull_apart_song", download_url_audio, "pull_apart_song")
+        @pgq.entrypoint("access_pipeline")
+        async def access_pipeline(job: Job):
+            payload = parse_payload(job.payload, strict=True)
 
-    @pgq.entrypoint("access_pipeline")
-    async def access_pipeline(job: Job):
-        payload = parse_payload(job.payload)
+            pipeline = payload["pipeline"]
 
-        pipeline = payload.get("pipeline")
+            assert pipeline["name"] == "meta_pipeline"
+            assert pipeline["steps"][0] == "access_pipeline"
 
-        assert pipeline
-        assert pipeline["name"] == "meta_pipeline"
-        assert pipeline["steps"][0] == "access_pipeline"
+        pgq.entrypoint_pipeline("meta_pipeline", access_pipeline, [access_pipeline, access_pipeline])
 
-    pgq.entrypoint_pipeline("meta_pipeline", access_pipeline, [access_pipeline, access_pipeline])
-
-    print("listening", pgq.channel)
-    return pgq
+        print("listening", pgq.channel)
+        yield pgq
